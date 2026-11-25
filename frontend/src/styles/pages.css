@@ -2025,6 +2025,68 @@
   color: var(--rose-ink, var(--ink-2));
 }
 
+/* 检索没命中：不是错误，是一条结论，所以用面板而不是红色提示 */
+.chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.chat-empty.is-empty {
+  border-style: dashed;
+}
+
+.chat-empty-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.chat-empty-title svg {
+  color: var(--ink-3);
+  flex: none;
+}
+
+.chat-empty.is-no_match .chat-empty-title svg {
+  color: var(--amber);
+}
+
+.chat-empty-detail {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+
+.chat-empty .btn {
+  margin-top: 2px;
+}
+
+/* 每段 AI 回答底部的来源声明：必须一直可见，不折叠进问号里 */
+.chat-ai-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+
+.chat-ai-note svg {
+  flex: none;
+  opacity: 0.75;
+}
+
 .chat-sources {
   display: flex;
   flex-direction: column;

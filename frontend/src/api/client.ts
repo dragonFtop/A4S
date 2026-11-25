@@ -268,10 +268,22 @@ export interface ChatRange {
   document_ids?: string[]
 }
 
+/**
+ * 检索不到内容时后端发来的说明。
+ * empty  知识库里还没有任何片段 → 引导去导入
+ * no_match 有片段但都不相关（或超出当前范围）→ 引导换说法 / 放宽范围
+ */
+export interface NoContextInfo {
+  reason: 'empty' | 'no_match'
+  detail: string
+  /** 是否带了主题/标签/资料范围限制 */
+  scoped: boolean
+}
+
 export interface ChatHandlers {
   onSources?: (items: Citation[]) => void
   onDelta?: (text: string) => void
-  onNoContext?: (detail: string) => void
+  onNoContext?: (info: NoContextInfo) => void
   onError?: (detail: string) => void
   onDone?: () => void
 }
@@ -314,7 +326,12 @@ export async function chatStream(
       const parsed = data ? JSON.parse(data) : {}
       if (event === 'sources') handlers.onSources?.(parsed.items ?? [])
       else if (event === 'delta') handlers.onDelta?.(parsed.text ?? '')
-      else if (event === 'no_context') handlers.onNoContext?.(parsed.detail ?? '')
+      else if (event === 'no_context')
+        handlers.onNoContext?.({
+          reason: parsed.reason === 'empty' ? 'empty' : 'no_match',
+          detail: parsed.detail ?? '',
+          scoped: Boolean(parsed.scoped),
+        })
       else if (event === 'error') handlers.onError?.(parsed.detail ?? '生成失败')
       else if (event === 'done') handlers.onDone?.()
     }

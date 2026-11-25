@@ -22,6 +22,17 @@ SYSTEM_PROMPT = """\
 3. 用简体中文回答，术语保留英文原样（如 B+ 树、attention）。
 4. 直接回答问题本身，不要复述问题，不要写"根据资料"这类开场白。
 5. 回答控制在 400 字以内；代码问题给最小示例，概念问题给定义加要点。
+6. 如果资料只覆盖问题的一部分，先说一句"资料中只找到部分相关内容"，再回答能找到的部分；
+   缺的那部分明确说资料没讲，不要用常识补齐后混在一起说。
+"""
+
+# 检索只是"擦边命中"时追加的一段提醒。
+UNSURE_NOTE = """\
+注意：下面这些片段是向量检索的前几名，但相似度不高，很可能并不包含这个问题的答案。
+先判断它们到底能不能回答问题：
+- 能回答：照常作答并标注引用；
+- 只能回答一部分：说清资料覆盖到哪儿，剩下的明说资料里没有；
+- 完全答不了：只输出一句"知识库中没有找到与这个问题相关的资料"，不要展开，也不要用你自己的知识补。
 """
 
 USER_TEMPLATE = """\
@@ -39,9 +50,11 @@ def build_messages(
     question: str,
     materials: str,
     history: list[dict] | None = None,
+    unsure: bool = False,
 ) -> list[dict]:
-    """组装一次问答请求。history 是最近的对话轮（已裁剪）。"""
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    """组装一次问答请求。history 是最近的对话轮（已裁剪）；unsure 表示召回置信度偏低。"""
+    system = SYSTEM_PROMPT + ("\n" + UNSURE_NOTE if unsure else "")
+    messages: list[dict] = [{"role": "system", "content": system}]
     for item in history or []:
         messages.append({"role": item["role"], "content": item["content"]})
     messages.append({"role": "user", "content": USER_TEMPLATE.format(materials=materials, question=question)})
