@@ -1,0 +1,16 @@
+# A4S RAG 依赖（M2 起）
+#
+# 安装：pip install -r backend/requirements-rag.txt
+# 注意：sentence-transformers 会拉入 torch（约 2GB），首次安装较慢；
+#      本地 BGE 模型权重在首次使用时由 huggingface 下载（约 100MB）。
+#
+# 向量库选用 sqlite-vec 而非 chromadb：
+#   - chromadb 在 Python 3.13 + Windows 上需要编译 chroma-hnswlib，缺少 SDK 头文件会失败；
+#   - sqlite-vec 提供预编译 wheel（约 200KB），与现有 SQLite 同库，备份即全量数据；
+#   - 元数据过滤直接用 SQL，未来切 PostgreSQL 可平滑换到 pgvector。
+llama-index-core>=0.12,<0.13
+llama-index-readers-file>=0.4,<0.5
+sentence-transformers>=6.0
+pypdf>=5.0
+python-docx>=1.2
+sqlite-vec>=0.1.9

@@ -1,0 +1,161 @@
+/* ==========================================================================
+   A4S · Night Passage
+   深靛的底，实心的面板，琥珀作为唯一信号。
+
+   规则：
+   1. 页面与组件只允许引用变量，不写死颜色；
+   2. 面板是「实心的一层」，不是半透明的玻璃——文字对比靠它撑住；
+   3. 琥珀只出现在「值得看一眼的东西」上，一屏不超过三处。
+   ========================================================================== */
+
+:root {
+  /* ---------- 底 ---------- */
+  --bg: #08090c;
+  --bg-2: #0c0e13;
+
+  /* ---------- 面板：三个明确的层级 ---------- */
+  --surface: #12151c;
+  --surface-2: #1a1e27;
+  --surface-3: #232833;
+  --line: rgba(255, 255, 255, 0.088);
+  --line-2: rgba(255, 255, 255, 0.16);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+
+  /* ---------- 墨 ---------- */
+  --ink: #edf0f6;
+  --ink-2: #9ba4b4;
+  --ink-3: #6b7385;
+
+  /* ---------- 信号：琥珀 ---------- */
+  --amber: #ffb454;
+  --amber-2: #ffc97a;
+  --amber-fill: #ffb454;
+  --amber-fill-2: #ffcb80;
+  --amber-soft: rgba(255, 180, 84, 0.12);
+  --amber-line: rgba(255, 180, 84, 0.3);
+
+  /* ---------- 状态 ---------- */
+  --teal: #4fd8c4;
+  --teal-soft: rgba(79, 216, 196, 0.12);
+  --rose: #ff8496;
+  --rose-soft: rgba(255, 132, 150, 0.12);
+
+  /* 文字专用的信号色：信号色本身是给发光元素用的亮色，
+     直接当小号文字色在浅底上对比度不足，单独开一组 */
+  --teal-ink: var(--teal);
+  --rose-ink: var(--rose);
+  --amber-ink: var(--amber);
+
+  /* ---------- 环境 ---------- */
+  --aurora-a: rgba(255, 172, 74, 0.11);
+  --aurora-b: rgba(96, 108, 240, 0.13);
+  --aurora-c: rgba(52, 200, 190, 0.08);
+
+  /* ---------- 字体 ---------- */
+  --f-ui: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
+    'Noto Sans SC', 'Segoe UI', sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  --f-serif: 'Noto Serif SC', 'Songti SC', 'Source Han Serif SC', Georgia, serif;
+
+  /* 兼容别名 */
+  --font-sans: var(--f-ui);
+  --font-mono: var(--f-mono);
+
+  /* ---------- 字号阶梯 ----------
+     中文在 13px 以下会明显掉清晰度，最小档定在 12px，
+     且 12px 只给计数器、时间戳这类真正的旁注。 */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14.5px;
+  --text-md: 15.5px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-3xl: 34px;
+
+  --leading: 1.65;
+  --leading-tight: 1.25;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-full: 999px;
+
+  --rail-w: 248px;
+  --topbar-h: 60px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 12px 28px -20px rgba(0, 0, 0, 0.9);
+  --shadow-lg: 0 26px 60px -40px rgba(0, 0, 0, 1);
+  --shadow-pop: 0 18px 44px -18px rgba(0, 0, 0, 0.72), 0 0 0 1px var(--line);
+  /* 浮层（问号气泡、下拉等）的底：深色比面板再亮一档，浅色直接上纯白 */
+  --pop: #262b36;
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 140ms;
+  --duration: 200ms;
+
+  color-scheme: dark;
+}
+
+/* ==========================================================================
+   浅色：不是把深色反相，而是换成「白天的工作台」——
+   纸面更亮、面板更实、琥珀换成能压在浅色上的深琥珀。
+   ========================================================================== */
+
+[data-theme='light'] {
+  --bg: #f4f5f7;
+  --bg-2: #ffffff;
+
+  --surface: #ffffff;
+  --surface-2: #f4f5f8;
+  --surface-3: #eaecf1;
+  --line: rgba(15, 18, 26, 0.082);
+  --line-2: rgba(15, 18, 26, 0.15);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+  --ink: #0e1116;
+  --ink-2: #4b5462;
+  --ink-3: #7c8595;
+
+  --amber: #a4560a;
+  --amber-2: #8a4708;
+  --amber-fill: #f0932b;
+  --amber-fill-2: #ffbc6b;
+  --amber-soft: rgba(214, 138, 38, 0.12);
+  --amber-line: rgba(180, 100, 12, 0.3);
+
+  --teal: #0f9483;
+  --teal-soft: rgba(15, 148, 131, 0.1);
+  --rose: #d0455a;
+  --rose-soft: rgba(208, 69, 90, 0.09);
+
+  /* 浅底上的小号文字需要更深：原色对白背景仅约 3.5:1，小字不达标 */
+  --teal-ink: #0a6357;
+  --rose-ink: #a8283c;
+  --amber-ink: #7d4207;
+
+  --aurora-a: rgba(255, 200, 128, 0.3);
+  --aurora-b: rgba(146, 146, 250, 0.13);
+  --aurora-c: rgba(96, 210, 200, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(18, 30, 56, 0.06);
+  --shadow-md: 0 2px 6px -2px rgba(18, 30, 56, 0.08), 0 10px 24px -18px rgba(18, 30, 56, 0.3);
+  --shadow-lg: 0 1px 2px rgba(18, 30, 56, 0.04), 0 18px 40px -28px rgba(18, 30, 56, 0.26);
+  --shadow-pop: 0 18px 44px -18px rgba(18, 30, 56, 0.3), 0 0 0 1px var(--line);
+  --pop: #ffffff;
+
+  color-scheme: light;
+}

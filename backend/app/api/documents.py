@@ -1,0 +1,236 @@
+"""资料接口（FR-01 / FR-02）。
+
+上传后立即返回 pending 状态的文档，解析与向量化在后台任务执行；
+前端轮询列表即可看到 processing → ready / failed。
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+
+from app.domain.models.entities import UNCATEGORIZED_ID, Document, DocumentStatus, TopicKind
+from app.infrastructure.db.session import get_db
+from app.repositories.sqlalchemy_repo import (
+    SqlAlchemyChunkRepository,
+    SqlAlchemyDocumentRepository,
+    SqlAlchemyTopicRepository,
+)
+from app.schemas.common import DocumentOut, TopicBrief
+from app.schemas.documents import (
+    BatchIn,
+    ChunkOut,
+    DocumentStatsOut,
+    PasteIn,
+    UploadError,
+    UploadOut,
+    WebFetchIn,
+    WebFetchOut,
+)
+from app.services import ingest_service
+from app.services import webfetch_service
+from app.services.ingest_service import IngestError
+from app.services.webfetch_service import WebImportError
+
+router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+def _get_doc_repo(db: Session = Depends(get_db)) -> SqlAlchemyDocumentRepository:
+    return SqlAlchemyDocumentRepository(db)
+
+
+def _topic_map(db: Session) -> dict[str, TopicBrief]:
+    repo = SqlAlchemyTopicRepository(db)
+    return {
+        t.id: TopicBrief(id=t.id, name=t.name, color=t.color)
+        for t in repo.list()
+    }
+
+
+def _out(doc: Document, topics: dict[str, TopicBrief]) -> DocumentOut:
+    topic = topics.get(doc.topic_id) or TopicBrief(id=doc.topic_id, name="未分类", color="#888780")
+    return DocumentOut(
+        id=doc.id,
+        name=doc.name,
+        ext=doc.ext,
+        size=doc.size,
+        status=doc.status.value,
+        chunk_count=doc.chunk_count,
+        error=doc.error,
+        created_at=doc.created_at,
+        ready_at=doc.ready_at,
+        topic=topic,
+        tags=[topics[t] for t in doc.tag_ids if t in topics],
+    )
+
+
+def _parse_tag_ids(raw: str) -> list[str]:
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+@router.get("", response_model=list[DocumentOut])
+def list_documents(
+    limit: int = 100,
+    offset: int = 0,
+    topic_ids: str | None = None,
+    tag_ids: str | None = None,
+    status: str | None = None,
+    keyword: str | None = None,
+    db: Session = Depends(get_db),
+) -> list[DocumentOut]:
+    docs = SqlAlchemyDocumentRepository(db).list(
+        limit=limit,
+        offset=offset,
+        topic_ids=_parse_tag_ids(topic_ids) if topic_ids else None,
+        tag_ids=_parse_tag_ids(tag_ids) if tag_ids else None,
+        status=DocumentStatus(status) if status else None,
+        keyword=keyword or None,
+    )
+    topics = _topic_map(db)
+    return [_out(doc, topics) for doc in docs]
+
+
+@router.get("/stats", response_model=DocumentStatsOut)
+def document_stats(db: Session = Depends(get_db)) -> DocumentStatsOut:
+    repo = SqlAlchemyDocumentRepository(db)
+    total = repo.count()
+    ready = repo.count(status=DocumentStatus.READY)
+    failed = repo.count(status=DocumentStatus.FAILED)
+    pending = repo.count(status=DocumentStatus.PENDING) + repo.count(
+        status=DocumentStatus.PROCESSING
+    )
+    return DocumentStatsOut(
+        total=total,
+        ready=ready,
+        processing=pending,
+        failed=failed,
+        chunks=SqlAlchemyChunkRepository(db).count(),
+    )
+
+
+@router.post("/upload", response_model=UploadOut, status_code=201)
+async def upload_documents(
+    background: BackgroundTasks,
+    files: list[UploadFile] = File(...),
+    topic_id: str = Form(UNCATEGORIZED_ID),
+    tag_ids: str = Form(""),
+    db: Session = Depends(get_db),
+) -> UploadOut:
+    if not ingest_service.topic_exists(db, topic_id):
+        raise HTTPException(status_code=400, detail="主题不存在，请先创建或选择「未分类」")
+
+    tags = _parse_tag_ids(tag_ids)
+    topics = _topic_map(db)
+    created: list[DocumentOut] = []
+    errors: list[UploadError] = []
+
+    for upload in files:
+        name = upload.filename or "未命名文件"
+        try:
+            content = await upload.read()
+            doc = ingest_service.create_from_upload(
+                db, filename=name, content=content, topic_id=topic_id, tag_ids=tags
+            )
+        except IngestError as exc:
+            errors.append(UploadError(name=name, reason=str(exc)))
+            continue
+        except Exception as exc:  # 单个文件失败不应中断整批
+            errors.append(UploadError(name=name, reason=f"保存失败：{exc}"))
+            continue
+        created.append(_out(doc, topics))
+        background.add_task(ingest_service.run_ingest, doc.id)
+
+    return UploadOut(documents=created, errors=errors)
+
+
+@router.post("/webfetch", response_model=WebFetchOut)
+def webfetch_document(payload: WebFetchIn) -> WebFetchOut:
+    """抓取网页转 Markdown，只做预览不入库；确认后走 /paste。"""
+    try:
+        preview = webfetch_service.fetch_for_preview(payload.url)
+    except WebImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WebFetchOut(**preview)
+
+
+@router.post("/paste", response_model=DocumentOut, status_code=201)
+def paste_document(
+    payload: PasteIn,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> DocumentOut:
+    if not ingest_service.topic_exists(db, payload.topic_id):
+        raise HTTPException(status_code=400, detail="主题不存在，请先创建或选择「未分类」")
+    try:
+        doc = ingest_service.create_from_text(
+            db,
+            content=payload.content,
+            title=payload.title,
+            topic_id=payload.topic_id,
+            tag_ids=payload.tag_ids,
+        )
+    except IngestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    background.add_task(ingest_service.run_ingest, doc.id)
+    return _out(doc, _topic_map(db))
+
+
+@router.post("/batch")
+def batch_update(payload: BatchIn, db: Session = Depends(get_db)) -> dict:
+    """批量设主题 / 加标签 / 去标签。"""
+    repo = SqlAlchemyDocumentRepository(db)
+    tag_repo = SqlAlchemyTopicRepository(db)
+
+    valid_tags = {t.id for t in tag_repo.list(TopicKind.TAG)}
+    touched = 0
+    for document_id in payload.document_ids:
+        doc = repo.get(document_id)
+        if doc is None:
+            continue
+        if payload.topic_id and payload.topic_id != doc.topic_id:
+            ingest_service.move_document_topic(db, document_id, payload.topic_id)
+        if payload.add_tag_ids or payload.remove_tag_ids:
+            doc = repo.get(document_id) or doc
+            merged = [
+                t for t in doc.tag_ids if t not in payload.remove_tag_ids
+            ]
+            merged.extend(t for t in payload.add_tag_ids if t in valid_tags and t not in merged)
+            repo.set_tags(document_id, merged)
+        touched += 1
+    return {"updated": touched}
+
+
+@router.get("/{document_id}/chunks", response_model=list[ChunkOut])
+def list_chunks(document_id: str, db: Session = Depends(get_db)) -> list[ChunkOut]:
+    doc = SqlAlchemyDocumentRepository(db).get(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    chunks = SqlAlchemyChunkRepository(db).list_by_document(document_id)
+    return [
+        ChunkOut(id=c.id, index=c.index, text=c.text, page=c.page)
+        for c in chunks
+    ]
+
+
+@router.post("/{document_id}/reingest", response_model=DocumentOut)
+def reingest_document(
+    document_id: str,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> DocumentOut:
+    doc = SqlAlchemyDocumentRepository(db).get(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    SqlAlchemyDocumentRepository(db).update_status(document_id, DocumentStatus.PENDING)
+    background.add_task(ingest_service.run_ingest, document_id)
+    return _out(SqlAlchemyDocumentRepository(db).get(document_id) or doc, _topic_map(db))
+
+
+@router.delete("/{document_id}")
+def delete_document(document_id: str, db: Session = Depends(get_db)) -> dict:
+    doc = SqlAlchemyDocumentRepository(db).get(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    ingest_service.delete_document(db, document_id)
+    return {"deleted": document_id}

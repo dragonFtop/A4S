@@ -1,0 +1,205 @@
+"""RAG 问答业务（FR-03）。
+
+链路：检索 → 先下发引用 → 流式生成 → 结束。一次 POST 完成，
+事件用 SSE 分发，前端不需要"先检索再提问"两个请求。
+
+范围过滤的两条路径
+------------------
+- `topic_id`：走 sqlite-vec 的 partition key，在分区内取 Top-K。
+  分区内取 K 才保证小主题不被大主题淹没（FR-02 规则 7 的同一结论）。
+- `tag_ids` / `document_ids`：无法下推到分区，先查出片段白名单，
+  检索时按 `allowed_chunk_ids` 过滤（store 会 4 倍超采再截断，
+  避免过滤后不足 Top-K）。
+- 两者同时给定时取交集：先按主题分区检索，再按白名单过滤。
+
+相似度阈值
+----------
+sqlite-vec 返回 cosine distance，相似度 = 1 - distance。
+阈值 0.3（即 distance ≤ 0.7）：低于它说明问题与库内内容基本无关，
+宁可回答"没找到"也不要让模型对着无关片段硬答。
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from collections.abc import AsyncIterator
+
+from app.config import settings
+from app.infrastructure.db.session import SessionLocal, get_vector_store
+from app.infrastructure.llm.openai_compat import build_llm
+from app.repositories.sqlalchemy_repo import (
+    SqlAlchemyChunkRepository,
+    SqlAlchemyDocumentRepository,
+)
+from app.services import chat_prompts
+
+logger = logging.getLogger(__name__)
+
+TOP_K = 5
+MIN_SIMILARITY = 0.3
+MAX_CONTEXT_CHARS = 12_000
+MAX_HISTORY_ROUNDS = 5
+SNIPPET_CHARS = 240
+
+
+def _event(name: str, data: dict) -> str:
+    return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def retrieve(
+    db,
+    question: str,
+    *,
+    topic_id: str | None = None,
+    tag_ids: list[str] | None = None,
+    document_ids: list[str] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """检索片段。
+
+    返回 (citations, chunks_text)：
+    citations 是对外引用列表（带 index），chunks_text 是拼给模型的原文。
+    """
+    store = get_vector_store()
+    chunk_repo = SqlAlchemyChunkRepository(db)
+    doc_repo = SqlAlchemyDocumentRepository(db)
+
+    allowed: set[str] | None = None
+    if document_ids or tag_ids:
+        doc_ids: list[str] = list(dict.fromkeys(document_ids or []))
+        if tag_ids:
+            # 标签 → 资料 → 片段：多标签取并集（任一标签命中即算相关）
+            tagged = doc_repo.list(tag_ids=tag_ids, limit=500)
+            doc_ids.extend(doc.id for doc in tagged)
+        allowed = set()
+        for doc_id in dict.fromkeys(doc_ids):
+            allowed.update(c.id for c in chunk_repo.list_by_document(doc_id))
+        if not allowed:
+            return [], []
+
+    vector = _embed_query(question)
+    hits = store.search(vector, top_k=TOP_K, topic_id=topic_id, allowed_chunk_ids=allowed)
+
+    names: dict[str, str | None] = {}
+
+    def _doc_name(document_id: str | None) -> str | None:
+        if document_id is None:
+            return None
+        if document_id not in names:
+            doc = doc_repo.get(document_id)
+            names[document_id] = doc.name if doc else None
+        return names[document_id]
+
+    citations: list[dict] = []
+    blocks: list[str] = []
+    used = 0
+    for chunk_id, distance in hits:
+        if 1.0 - distance < MIN_SIMILARITY:
+            continue
+        chunk = chunk_repo.get(chunk_id)
+        if chunk is None:
+            continue
+        block = chunk.text.strip()
+        if used + len(block) > MAX_CONTEXT_CHARS:
+            break
+        used += len(block)
+        name = _doc_name(chunk.document_id)
+        index = len(citations) + 1
+        citations.append(
+            {
+                "index": index,
+                "chunk_id": chunk.id,
+                "document_id": chunk.document_id,
+                "document_name": name,
+                "snippet": block[:SNIPPET_CHARS],
+                "page": chunk.page,
+            }
+        )
+        source = name or "资料"
+        page = f" 第 {chunk.page} 页" if chunk.page else ""
+        blocks.append(f"[{index}] 《{source}》{page}\n{block}")
+
+    return citations, blocks
+
+
+def _embed_query(question: str) -> list[float]:
+    from app.infrastructure.llm.bge_local import build_embedding
+
+    return build_embedding().embed_one(question)
+
+
+def _trim_history(history: list[dict]) -> list[dict]:
+    """只留最近 N 轮，且第一条必须是 user（OpenAI 兼容端点不要求，但更稳）。"""
+    kept = history[-(MAX_HISTORY_ROUNDS * 2) :]
+    while kept and kept[0]["role"] != "user":
+        kept = kept[1:]
+    return kept
+
+
+async def sse_chat(payload: dict) -> AsyncIterator[str]:
+    """问答 SSE 主循环。自己开 Session，响应期间保持可用。"""
+    db = SessionLocal()
+    try:
+        # 空库判断放在 Key 之前：先导入资料是第一步，提示要指向真正卡住的地方
+        chunk_repo = SqlAlchemyChunkRepository(db)
+        if chunk_repo.count() == 0:
+            yield _event(
+                "no_context",
+                {
+                    "detail": "知识库还没有资料。先在知识库导入文档或网页，等索引完成后再提问。",
+                },
+            )
+            return
+
+        if not settings.llm_configured:
+            yield _event("error", {"detail": "尚未配置大模型 API Key，请先在设置页填写"})
+            return
+
+        citations, blocks = retrieve(
+            db,
+            payload["question"],
+            topic_id=payload.get("topic_id"),
+            tag_ids=payload.get("tag_ids") or [],
+            document_ids=payload.get("document_ids") or [],
+        )
+        if not citations:
+            yield _event(
+                "no_context",
+                {
+                    "detail": "知识库中未找到与问题相关的内容。换个说法，或确认资料是否已导入到当前范围。",
+                },
+            )
+            return
+
+        yield _event("sources", {"items": citations})
+
+        materials = "\n\n---\n\n".join(blocks)
+        messages = chat_prompts.build_messages(
+            payload["question"], materials, history=_trim_history(payload.get("history") or [])
+        )
+
+        llm = build_llm()
+        answer_id = uuid.uuid4().hex[:12]
+        try:
+            async for delta in llm.stream(messages, temperature=0.3):
+                if delta:
+                    yield _event("delta", {"text": delta, "id": answer_id})
+        except Exception as exc:  # noqa: BLE001 - 供应商报错要原样转给人
+            logger.exception("问答生成失败")
+            yield _event("error", {"detail": _explain(str(exc) or exc.__class__.__name__)})
+            return
+        yield _event("done", {"id": answer_id})
+    finally:
+        db.close()
+
+
+def _explain(message: str) -> str:
+    lowered = message.lower()
+    if "401" in message or "unauthorized" in lowered or "api key" in lowered:
+        return "模型鉴权失败（401）：请检查设置页的 API Key"
+    if "timeout" in lowered or "timed out" in lowered:
+        return "模型响应超时：请稍后重试"
+    if "429" in message:
+        return "模型额度不足或请求过快（429）：请稍后重试"
+    return message[:400]

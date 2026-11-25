@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "note": "PRD 附录 B 的机器可读版本。首次进入知识库且主题数为 0 时展示，用户选 1~3 个包批量创建主题。以本文件为准，PRD 表格为说明。",
+  "default_tags": [
+    { "name": "重点", "color": "#BA7517" },
+    { "name": "公式", "color": "#7F77DD" },
+    { "name": "代码", "color": "#1D9E75" },
+    { "name": "易错", "color": "#D85A30" },
+    { "name": "待整理", "color": "#888780" }
+  ],
+  "packs": [
+    {
+      "id": "cs-core",
+      "name": "计算机核心",
+      "summary": "408 主干课与软件工程基础",
+      "topics": [
+        { "name": "数据结构", "color": "#7F77DD" },
+        { "name": "计算机组成原理", "color": "#1D9E75" },
+        { "name": "操作系统", "color": "#D85A30" },
+        { "name": "计算机网络", "color": "#D4537E" },
+        { "name": "数据库系统", "color": "#378ADD" },
+        { "name": "编译原理", "color": "#639922" },
+        { "name": "软件工程", "color": "#BA7517" },
+        { "name": "算法设计与分析", "color": "#888780" }
+      ]
+    },
+    {
+      "id": "ai-llm",
+      "name": "AI 与大模型",
+      "summary": "从机器学习基础到大模型应用开发",
+      "topics": [
+        { "name": "机器学习", "color": "#7F77DD" },
+        { "name": "深度学习", "color": "#1D9E75" },
+        { "name": "自然语言处理", "color": "#D85A30" },
+        { "name": "大模型应用开发", "color": "#D4537E" },
+        { "name": "LangChain", "color": "#378ADD" },
+        { "name": "RAG 检索增强", "color": "#639922" },
+        { "name": "Agent 与工具调用", "color": "#BA7517" },
+        { "name": "Prompt 工程", "color": "#888780" },
+        { "name": "向量数据库", "color": "#7F77DD" },
+        { "name": "FastAPI 后端", "color": "#1D9E75" }
+      ]
+    },
+    {
+      "id": "math",
+      "name": "数学",
+      "summary": "公共数学课与工具课",
+      "topics": [
+        { "name": "高等数学", "color": "#7F77DD" },
+        { "name": "线性代数", "color": "#1D9E75" },
+        { "name": "概率论与数理统计", "color": "#D85A30" },
+        { "name": "离散数学", "color": "#D4537E" },
+        { "name": "数值分析", "color": "#378ADD" },
+        { "name": "最优化方法", "color": "#639922" }
+      ]
+    },
+    {
+      "id": "ee",
+      "name": "电子与通信",
+      "summary": "电路、信号与嵌入式方向",
+      "topics": [
+        { "name": "电路分析", "color": "#7F77DD" },
+        { "name": "模拟电子技术", "color": "#1D9E75" },
+        { "name": "数字电子技术", "color": "#D85A30" },
+        { "name": "信号与系统", "color": "#D4537E" },
+        { "name": "通信原理", "color": "#378ADD" },
+        { "name": "单片机与嵌入式", "color": "#639922" }
+      ]
+    },
+    {
+      "id": "econ",
+      "name": "经济与管理",
+      "summary": "经管类核心课",
+      "topics": [
+        { "name": "微观经济学", "color": "#7F77DD" },
+        { "name": "宏观经济学", "color": "#1D9E75" },
+        { "name": "管理学", "color": "#D85A30" },
+        { "name": "会计学", "color": "#D4537E" },
+        { "name": "金融学", "color": "#378ADD" },
+        { "name": "应用统计学", "color": "#639922" }
+      ]
+    },
+    {
+      "id": "lang",
+      "name": "外语",
+      "summary": "英语课与出国考试",
+      "topics": [
+        { "name": "大学英语", "color": "#7F77DD" },
+        { "name": "四六级", "color": "#1D9E75" },
+        { "name": "雅思托福", "color": "#D85A30" },
+        { "name": "学术写作", "color": "#D4537E" },
+        { "name": "专业英语", "color": "#378ADD" }
+      ]
+    },
+    {
+      "id": "humanities",
+      "name": "人文社科",
+      "summary": "思政课与通识",
+      "topics": [
+        { "name": "马克思主义基本原理", "color": "#7F77DD" },
+        { "name": "毛泽东思想概论", "color": "#1D9E75" },
+        { "name": "中国近现代史", "color": "#D85A30" },
+        { "name": "思想道德与法治", "color": "#D4537E" },
+        { "name": "社会学", "color": "#378ADD" }
+      ]
+    },
+    {
+      "id": "exam",
+      "name": "考研与竞赛",
+      "summary": "备考与竞赛专项",
+      "topics": [
+        { "name": "考研数学", "color": "#7F77DD" },
+        { "name": "考研英语", "color": "#1D9E75" },
+        { "name": "考研政治", "color": "#D85A30" },
+        { "name": "408 计算机综合", "color": "#D4537E" },
+        { "name": "数学建模", "color": "#378ADD" },
+        { "name": "ACM 与蓝桥杯", "color": "#639922" }
+      ]
+    },
+    {
+      "id": "general",
+      "name": "通用",
+      "summary": "不归属具体课程的资料",
+      "topics": [
+        { "name": "课程课件", "color": "#7F77DD" },
+        { "name": "教材", "color": "#1D9E75" },
+        { "name": "论文文献", "color": "#D85A30" },
+        { "name": "作业习题", "color": "#D4537E" },
+        { "name": "其他", "color": "#378ADD" }
+      ]
+    }
+  ]
+}

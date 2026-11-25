@@ -1,0 +1,330 @@
+/* ==========================================================================
+   基础层：重置、排版基线、环境背景、全局动效
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  transition: background 320ms var(--ease-soft), color 320ms var(--ease-soft);
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure,
+dl,
+dd,
+ul,
+ol {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+svg {
+  flex: none;
+}
+
+code {
+  font-family: var(--f-mono);
+  font-size: 0.92em;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--amber-fill) 78%, #fff);
+  color: #14100a;
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* 滚动条：细、暗、不抢视线 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-3);
+  background-clip: content-box;
+}
+
+/* ==========================================================================
+   环境层：两团极光
+   只做极慢的位移，不抢内容。网格与噪点已移除——
+   面板改成实心之后，它们只会让层次变脏。
+   ========================================================================== */
+
+.bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.aurora {
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+
+.a1 {
+  width: 70vw;
+  height: 70vw;
+  left: -42vw;
+  top: -52vw;
+  background: radial-gradient(
+    circle at center,
+    var(--aurora-a) 0%,
+    color-mix(in srgb, var(--aurora-a) 46%, transparent) 42%,
+    transparent 74%
+  );
+  animation: drift-a 64s ease-in-out infinite alternate;
+}
+
+.a2 {
+  width: 66vw;
+  height: 66vw;
+  right: -40vw;
+  top: 24vh;
+  background: radial-gradient(
+    circle at center,
+    var(--aurora-b) 0%,
+    color-mix(in srgb, var(--aurora-b) 42%, transparent) 44%,
+    transparent 76%
+  );
+  animation: drift-b 76s ease-in-out infinite alternate;
+}
+
+.a3 {
+  display: none;
+}
+
+.bg-grid,
+.bg-noise {
+  display: none;
+}
+
+[data-theme='light'] .aurora {
+  opacity: 0.85;
+}
+
+@keyframes drift-a {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(8vw, 6vh, 0) scale(1.12);
+  }
+}
+
+@keyframes drift-b {
+  from {
+    transform: translate3d(0, 0, 0) scale(1.06);
+  }
+  to {
+    transform: translate3d(-7vw, 9vh, 0) scale(0.96);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+/* 入场：一次编排好的上升，不做满屏 hover 花活 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+   工具类
+   ========================================================================== */
+
+.mono {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.num {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--ink-3);
+}
+
+.text-secondary {
+  color: var(--ink-2);
+}
+
+.text-tertiary {
+  color: var(--ink-3);
+}
+
+.text-ok {
+  color: var(--teal);
+}
+
+.text-danger {
+  color: var(--rose);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 状态点 */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--ink-3);
+}
+
+.dot-ok {
+  background: var(--teal);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--teal) 70%, transparent);
+  animation: pulse 2.6s ease-in-out infinite;
+}
+
+.dot-off {
+  background: var(--rose);
+}
+
+.stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 静态模式（?still=1）：截图、弱设备与录屏时关掉全部动效。
+   必须覆盖所有元素：入场动画用 `animation-fill-mode: both` 时，
+   关掉动画后元素会停在起始帧（opacity: 0），弹窗会整个不可见。 */
+html[data-still] *,
+html[data-still] *::before,
+html[data-still] *::after {
+  animation: none !important;
+}
+
+/* 尊重系统的减少动效偏好：环境层停，过渡降到近乎瞬时 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .aurora {
+    animation: none !important;
+  }
+}

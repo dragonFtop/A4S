@@ -1,0 +1,16 @@
+# 源码统一按 LF 存储，避免 Windows 上每次 checkout 都提示换行符变更
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF，否则双击运行会出问题
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
