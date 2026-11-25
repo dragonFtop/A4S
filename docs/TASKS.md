@@ -350,6 +350,19 @@
 - [x] 验证：`smoke_m3` 25/25 通过、`tsc` 干净、`vite build` 通过、8 路由 × 2 主题无溢出无报错
 - [x] 重拍 `docs/screenshots/03-chat.png`（含 AI 声明）；测试数据已还原，开发库回到 0 资料
 
+### 追加：未命中后的兜底作答
+
+- [x] `chat_service.ANSWER_WITHOUT_CONTEXT` 开关（默认开）：检索无结果时先发 `no_context`，
+      再走 `_stream_answer` 用通用知识作答，不再直接 return
+- [x] `chat_prompts.UNGROUNDED_PROMPT` + `build_ungrounded_messages`：禁止输出 `[n]` 角标、
+      禁止假装引用；限制 4 条要点、要求把话说完（首版被 400 字上限截在半句）
+- [x] 抽出 `_stream_answer()`，有依据与无依据两条分支共用同一套 delta/done/error 事件
+- [x] 前端渲染顺序改为「声明块 → 正文 → AI 标注 → 来源」，声明必须在回答之前
+- [x] 三档标注措辞：有引用标 / 有来源未标注引用 / 完全无来源（"未使用你的资料，请注意甄别"）
+- [x] 多轮上下文纳入兜底回答（它是一轮完整对话），但"存为笔记"仍只在有来源时出现
+- [x] 空库不进兜底分支，仍只提示去导入（`reason=empty`）
+- [x] 验证：curl 实测未命中→完整作答且无角标、空库→仅声明、`smoke_m3` 25/25、tsc 与 build 通过
+
 ---
 
 ## 进度概览

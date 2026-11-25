@@ -278,6 +278,8 @@ export interface NoContextInfo {
   detail: string
   /** 是否带了主题/标签/资料范围限制 */
   scoped: boolean
+  /** 服务端是否会在声明之后继续用通用知识作答 */
+  fallback: boolean
 }
 
 export interface ChatHandlers {
@@ -331,6 +333,7 @@ export async function chatStream(
           reason: parsed.reason === 'empty' ? 'empty' : 'no_match',
           detail: parsed.detail ?? '',
           scoped: Boolean(parsed.scoped),
+          fallback: Boolean(parsed.fallback),
         })
       else if (event === 'error') handlers.onError?.(parsed.detail ?? '生成失败')
       else if (event === 'done') handlers.onDone?.()

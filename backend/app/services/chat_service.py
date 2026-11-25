@@ -46,6 +46,10 @@ TOP_K = 5
 MIN_SIMILARITY = 0.42
 # 低于此值算"擦边命中"，提示词里要额外提醒模型先判断片段是否真的能回答
 LOW_CONFIDENCE = 0.55
+# 检索不到时是否改用模型的通用知识作答。
+# 打开后必须显式声明"没找到资料"与"以下由 AI 生成"——这个声明由界面渲染，
+# 不依赖模型自觉，也不允许模型自己编引用编号。
+ANSWER_WITHOUT_CONTEXT = True
 MAX_CONTEXT_CHARS = 12_000
 MAX_HISTORY_ROUNDS = 5
 SNIPPET_CHARS = 240
@@ -146,6 +150,21 @@ def _trim_history(history: list[dict]) -> list[dict]:
     return kept
 
 
+async def _stream_answer(messages: list[dict], temperature: float) -> AsyncIterator[str]:
+    """把一次生成摊成 SSE 事件：delta... → done（或 error）。有依据与无依据共用。"""
+    llm = build_llm()
+    answer_id = uuid.uuid4().hex[:12]
+    try:
+        async for delta in llm.stream(messages, temperature=temperature):
+            if delta:
+                yield _event("delta", {"text": delta, "id": answer_id})
+    except Exception as exc:  # noqa: BLE001 - 供应商报错要原样转给人
+        logger.exception("问答生成失败")
+        yield _event("error", {"detail": _explain(str(exc) or exc.__class__.__name__)})
+        return
+    yield _event("done", {"id": answer_id})
+
+
 async def sse_chat(payload: dict) -> AsyncIterator[str]:
     """问答 SSE 主循环。自己开 Session，响应期间保持可用。"""
     db = SessionLocal()
@@ -173,21 +192,33 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
             tag_ids=payload.get("tag_ids") or [],
             document_ids=payload.get("document_ids") or [],
         )
+        history = _trim_history(payload.get("history") or [])
+
         if not citations:
             # 明确区分两种"没找到"：库是空的，还是库里有东西但都不相关。
-            # 前者要引导去导入，后者要引导换说法或放宽范围，给的下一步完全不同。
+            # 前者引导去导入；后者如果开了无依据作答，就直接用通用知识回答，
+            # 但先把"没找到资料"这件事说在前面，界面据此渲染声明块。
             scoped = bool(payload.get("topic_id") or payload.get("tag_ids") or payload.get("document_ids"))
             yield _event(
                 "no_context",
                 {
                     "reason": "no_match",
-                    "detail": (
-                        "当前提问范围内没有与问题相关的片段。"
-                        + ("可以先取消主题或标签限制再试一次。" if scoped else "换个更具体的说法，或确认相关资料是否已经索引完成。")
-                    ),
+                    "fallback": ANSWER_WITHOUT_CONTEXT,
                     "scoped": scoped,
+                    "detail": (
+                        "当前范围内没有相关片段，下面改用通用知识回答。"
+                        if ANSWER_WITHOUT_CONTEXT
+                        else "换个更具体的说法，或确认相关资料是否已经索引完成。"
+                    ),
                 },
             )
+            if not ANSWER_WITHOUT_CONTEXT:
+                return
+            async for chunk in _stream_answer(
+                chat_prompts.build_ungrounded_messages(payload["question"], history),
+                temperature=0.4,
+            ):
+                yield chunk
             return
 
         yield _event("sources", {"items": citations})
@@ -196,21 +227,11 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
         messages = chat_prompts.build_messages(
             payload["question"],
             materials,
-            history=_trim_history(payload.get("history") or []),
+            history=history,
             unsure=best < LOW_CONFIDENCE,
         )
-
-        llm = build_llm()
-        answer_id = uuid.uuid4().hex[:12]
-        try:
-            async for delta in llm.stream(messages, temperature=0.3):
-                if delta:
-                    yield _event("delta", {"text": delta, "id": answer_id})
-        except Exception as exc:  # noqa: BLE001 - 供应商报错要原样转给人
-            logger.exception("问答生成失败")
-            yield _event("error", {"detail": _explain(str(exc) or exc.__class__.__name__)})
-            return
-        yield _event("done", {"id": answer_id})
+        async for chunk in _stream_answer(messages, temperature=0.3):
+            yield chunk
     finally:
         db.close()
 

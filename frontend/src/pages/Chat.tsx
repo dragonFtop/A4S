@@ -54,7 +54,7 @@ interface Turn {
  * - 压根没有来源：连检索都没命中
  */
 function aiNote(turn: Turn): string {
-  if (!turn.sources?.length) return '本回答由 AI 生成，未关联任何资料片段，请自行判断可信度'
+  if (!turn.sources?.length) return '以下内容由 AI 生成，未使用你的资料，请注意甄别'
   if (!/\[\d+\]/.test(turn.content)) return '本回答由 AI 生成，且未标注引用，结论未与资料核对'
   return '本回答由 AI 生成，可能有误，请以下方引用原文为准'
 }
@@ -103,8 +103,9 @@ export default function Chat() {
     const scopeTags = opts?.noRange ? [] : rangeTags
 
     // 历史只带正常完成的对话（提示/错误不进上下文）
+    // 提示/错误不进上下文；但"没查到资料却给了通用回答"算完整一轮，要带上
     const history: ChatMessage[] = messages
-      .filter((m) => !m.noContext && !m.error && m.content.trim())
+      .filter((m) => !m.error && m.content.trim())
       .map((m) => ({ role: m.role, content: m.content }))
       .slice(-10)
 
@@ -192,11 +193,11 @@ export default function Chat() {
         <div>
           <h1>问答</h1>
           <p className="page-sub">
-            只依据你的资料作答，找不到依据就说不知道。
+            优先依据你的资料作答，查不到会明说。
             <HelpTip label="了解问答的依据">
               回答前先检索相关片段（最相关的 5 个，相似度 0.42 以上），正文角标可点开看原文。
-              检索不到时会直接说"没有找到"，不会拿无关片段硬答。
-              每段回答下方有一行声明：关联了几个片段、有没有标注引用，都能看出来。
+              检索不到时不会拿无关片段硬答：先声明"没有找到相关资料"，再改用模型自己的通用知识回答，
+              这段回答下方会标明"未使用你的资料"。有资料依据的回答也会标注引用情况。
             </HelpTip>
           </p>
         </div>
@@ -221,16 +222,6 @@ export default function Chat() {
                   <p className="chat-q">{m.content}</p>
                 ) : (
                   <div className="chat-a">
-                    {m.content ? (
-                      <MarkdownView markdown={m.content} sources={toNoteSources(m.sources)} />
-                    ) : (
-                      !m.noContext && !m.error && (
-                        <p className="chat-waiting">
-                          <Loader2 size={13} className="spin" /> 正在检索资料…
-                        </p>
-                      )
-                    )}
-
                     {m.noContext && (
                       <div className={`chat-empty is-${m.noContext.reason}`}>
                         <p className="chat-empty-title">
@@ -269,15 +260,26 @@ export default function Chat() {
                       </div>
                     )}
 
+                    {m.content ? (
+                      <MarkdownView markdown={m.content} sources={toNoteSources(m.sources)} />
+                    ) : (
+                      !m.noContext && !m.error && (
+                        <p className="chat-waiting">
+                          <Loader2 size={13} className="spin" /> 正在检索资料…
+                        </p>
+                      )
+                    )}
+
+                    {m.error && (
+                      <p className="chat-hint is-error">
+                        <TriangleAlert size={13} /> {m.error}
+                      </p>
+                    )}
+
                     {m.content && m.done && !m.error && (
                       <p className="chat-ai-note">
                         <Sparkles size={11} />
                         {aiNote(m)}
-                      </p>
-                    )}
-                    {m.error && (
-                      <p className="chat-hint is-error">
-                        <TriangleAlert size={13} /> {m.error}
                       </p>
                     )}
 

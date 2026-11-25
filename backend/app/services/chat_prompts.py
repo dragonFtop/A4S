@@ -59,3 +59,24 @@ def build_messages(
         messages.append({"role": item["role"], "content": item["content"]})
     messages.append({"role": "user", "content": USER_TEMPLATE.format(materials=materials, question=question)})
     return messages
+
+UNGROUNDED_PROMPT = """\
+这次的提问没有检索到任何资料片段，你没有资料可依据，只能用通用知识回答。
+
+规则：
+1. 不要输出 [编号] 角标，也不要假装引用资料——界面已注明"知识库中没有找到相关资料"。
+2. 直接回答，用简体中文，最多 4 条要点或 300 字左右；把话说完，不要写到一半停住；
+   不要写"根据我的知识""一般来说"这类套话。
+3. 举具体数字、版本号时要说明这是通用情况，可能与你手头的资料不一致。
+4. 如果这个问题本质上只能对着资料回答（例如"这份课件里怎么说的""我上传的论文结论是什么"），
+   直接说明需要先导入或指定资料，不要猜测内容。
+"""
+
+
+def build_ungrounded_messages(question: str, history: list[dict] | None = None) -> list[dict]:
+    """检索空手而归时的一次问答请求：没有任何资料，只靠模型的通用知识。"""
+    messages: list[dict] = [{"role": "system", "content": UNGROUNDED_PROMPT}]
+    for item in history or []:
+        messages.append({"role": item["role"], "content": item["content"]})
+    messages.append({"role": "user", "content": question})
+    return messages
