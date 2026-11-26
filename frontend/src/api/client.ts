@@ -270,7 +270,7 @@ export interface ChatRange {
 
 /**
  * 检索不到内容时后端发来的说明。
- * empty  知识库里还没有任何片段 → 引导去导入
+ * empty    知识库里还没有任何片段 → 界面在对话区顶部统一提示一次，不逐条渲染
  * no_match 有片段但都不相关（或超出当前范围）→ 引导换说法 / 放宽范围
  */
 export interface NoContextInfo {

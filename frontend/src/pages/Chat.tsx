@@ -21,6 +21,7 @@ import MarkdownView from '../components/notes/MarkdownView'
 import {
   chatStream,
   createNote,
+  getDocumentStats,
   listChunks,
   listTopics,
   type ChatMessage,
@@ -31,6 +32,8 @@ import {
 import HelpTip from '../components/ui/HelpTip'
 
 const SUGGESTIONS = ['这份资料的核心结论是什么？', '对比不同资料里的观点差异', '用一句话解释这个概念的直觉']
+/** 库是空的时候，上面那三个例子一定检索不到，换成不依赖资料的问法 */
+const SUGGESTIONS_EMPTY = ['帮我讲讲这个概念的直觉', '列一个三步的复习思路', '这个概念常见的误区有哪些？']
 
 interface Turn {
   role: 'user' | 'assistant'
@@ -51,12 +54,10 @@ interface Turn {
  * 每段 AI 回答都要能看出「依据够不够」：
  * - 有来源且正文标了 [n]：正常提示核对原文
  * - 有来源但正文一个引用都没标：说明它是凭记忆写的，风险最高
- * - 压根没有来源：连检索都没命中
+ * - 压根没有来源：连检索都没命中（知识库为空时同样适用，
+ *   但"库是空的"这件事由顶部状态条统一说明，不再逐条重复）
  */
 function aiNote(turn: Turn): string {
-  if (turn.noContext?.reason === 'empty') {
-    return '以上内容由 AI 自动生成，当前知识库中没有资料，未经任何原文核对，请注意甄别'
-  }
   if (!turn.sources?.length) return '以下内容由 AI 生成，未使用你的资料，请注意甄别'
   if (!/\[\d+\]/.test(turn.content)) return '本回答由 AI 生成，且未标注引用，结论未与资料核对'
   return '本回答由 AI 生成，可能有误，请以下方引用原文为准'
@@ -79,6 +80,8 @@ export default function Chat() {
   const [streaming, setStreaming] = useState(false)
   const [openSource, setOpenSource] = useState<string | null>(null)
   const [savingNote, setSavingNote] = useState(false)
+  /** 已入库片段数。null = 还没查出来，不渲染状态条，避免闪一下 */
+  const [kbChunks, setKbChunks] = useState<number | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -89,6 +92,19 @@ export default function Chat() {
         setTags(res.tags)
       })
       .catch(() => undefined)
+  }, [])
+
+  // 知识库状态只在进页面时提示一次，不跟着每条回答重复。
+  // 判据与后端一致：片段数为 0 就是检索必然空，无论是有 0 份资料还是资料还在处理。
+  useEffect(() => {
+    const load = () =>
+      getDocumentStats()
+        .then((s) => setKbChunks(s.chunks))
+        .catch(() => undefined)
+    load()
+    // 去知识库导入完再切回来，状态条要自己消失
+    window.addEventListener('focus', load)
+    return () => window.removeEventListener('focus', load)
   }, [])
 
   // 新消息或流式增量时贴底；用户往上翻就不打扰
@@ -191,6 +207,7 @@ export default function Chat() {
     setRangeTags((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
 
   const hasMessages = messages.length > 0
+  const kbEmpty = kbChunks === 0
 
   return (
     <section className="page">
@@ -202,7 +219,7 @@ export default function Chat() {
             <HelpTip label="了解问答的依据">
               回答前先检索相关片段（最相关的 5 个，相似度 0.42 以上），正文角标可点开看原文。
               检索不到时不会拿无关片段硬答：先声明"没有找到相关资料"，再改用模型自己的通用知识回答，
-              这段回答下方会标明"未使用你的资料"。知识库为空时同样可以提问，声明会写成"知识库中还没有资料"。
+              这段回答下方会标明"未使用你的资料"。知识库为空时也能提问，顶部会提示一次，回答同样按通用知识生成。
               有资料依据的回答也会标注引用情况。
             </HelpTip>
           </p>
@@ -211,6 +228,24 @@ export default function Chat() {
 
       <div className="workbench">
         <div className="card chat-panel">
+          {kbEmpty && (
+            <div className="chat-kb">
+              <FileText size={14} />
+              <div className="chat-kb-body">
+                <p className="chat-kb-title">知识库中还没有资料</p>
+                <p className="chat-kb-detail">回答将由 AI 通用知识生成，不引用任何原文。</p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Upload size={13} />}
+                onClick={() => navigate('/library')}
+              >
+                去导入资料
+              </Button>
+            </div>
+          )}
+
           <div className="thread">
             {!hasMessages && (
               <div className="thread-empty">
@@ -228,40 +263,23 @@ export default function Chat() {
                   <p className="chat-q">{m.content}</p>
                 ) : (
                   <div className="chat-a">
-                    {m.noContext && (
-                      <div className={`chat-empty is-${m.noContext.reason}`}>
+                    {/* 空库的说明已上移到顶部状态条，这里只处理「这次提问没命中」 */}
+                    {m.noContext?.reason === 'no_match' && (
+                      <div className="chat-empty is-no_match">
                         <p className="chat-empty-title">
-                          {m.noContext.reason === 'empty' ? (
-                            <FileText size={14} />
-                          ) : (
-                            <SearchX size={14} />
-                          )}
-                          {m.noContext.reason === 'empty'
-                            ? '知识库中还没有资料'
-                            : '知识库中没有找到相关资料'}
+                          <SearchX size={14} />
+                          知识库中没有找到相关资料
                         </p>
                         <p className="chat-empty-detail">{m.noContext.detail}</p>
-                        {m.noContext.reason === 'empty' ? (
+                        {m.noContext.scoped && m.asked && (
                           <Button
                             size="sm"
                             variant="ghost"
-                            icon={<Upload size={13} />}
-                            onClick={() => navigate('/library')}
+                            icon={<RotateCcw size={13} />}
+                            onClick={() => send(m.asked, { noRange: true })}
                           >
-                            去导入资料
+                            不限范围再问一次
                           </Button>
-                        ) : (
-                          m.noContext.scoped &&
-                          m.asked && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              icon={<RotateCcw size={13} />}
-                              onClick={() => send(m.asked, { noRange: true })}
-                            >
-                              不限范围再问一次
-                            </Button>
-                          )
                         )}
                       </div>
                     )}
@@ -345,7 +363,7 @@ export default function Chat() {
 
           <div className="followups">
             <span className="followups-label">可以这样问</span>
-            {SUGGESTIONS.map((s) => (
+            {(kbEmpty ? SUGGESTIONS_EMPTY : SUGGESTIONS).map((s) => (
               <button key={s} className="chip" disabled={streaming} onClick={() => send(s)}>
                 {s}
               </button>

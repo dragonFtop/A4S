@@ -2025,6 +2025,43 @@
   color: var(--rose-ink, var(--ink-2));
 }
 
+/* 知识库为空：进页面在对话区顶部说明一次，不跟着每条回答重复 */
+.chat-kb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--amber-line, var(--line));
+  background: var(--amber-soft);
+}
+
+.chat-kb > svg {
+  color: var(--amber);
+  flex: none;
+}
+
+.chat-kb-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-kb-title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 620;
+  color: var(--ink);
+}
+
+.chat-kb-detail {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+
 /* 检索没命中：不是错误，是一条结论，所以用面板而不是红色提示 */
 .chat-empty {
   display: flex;
@@ -2035,10 +2072,6 @@
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: var(--surface-2);
-}
-
-.chat-empty.is-empty {
-  border-style: dashed;
 }
 
 .chat-empty-title {
