@@ -203,12 +203,24 @@ def register(
     ensure_builtin(db, space_row.id)
 
     if is_first:
-        # 升级前留下的数据没有主人，第一个注册的人就是它主人
+        # 升级前留下的数据没有主人，第一个注册的人就是它主人。
+        # 但 topics 里的「未分类」要跳过：新空间刚刚建好了自己那份，
+        # 把旧的挪过来会在 (space_id, id) 主键上撞车。旧数据里引用
+        # topic_id='uncategorized' 的纪录，正好指向新空间这份，语义也对。
         for table in _LEGACY_TABLES:
-            db.execute(
-                text(f"UPDATE {table} SET space_id = :sid WHERE space_id = :legacy"),
-                {"sid": space_row.id, "legacy": LEGACY_SPACE_ID},
-            )
+            if table == "topics":
+                db.execute(
+                    text(
+                        "UPDATE topics SET space_id = :sid "
+                        "WHERE space_id = :legacy AND id != 'uncategorized'"
+                    ),
+                    {"sid": space_row.id, "legacy": LEGACY_SPACE_ID},
+                )
+            else:
+                db.execute(
+                    text(f"UPDATE {table} SET space_id = :sid WHERE space_id = :legacy"),
+                    {"sid": space_row.id, "legacy": LEGACY_SPACE_ID},
+                )
 
     token = _issue_token(db, user_row.id)
     db.commit()
