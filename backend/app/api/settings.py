@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.config import ROOT_DIR, settings
+from app.config import APP_VERSION, ROOT_DIR, settings
 from app.infrastructure.config_store import (
     ConfigWriteError,
     ENV_PATH,
@@ -78,7 +78,7 @@ def _snapshot() -> dict[str, Any]:
         },
         "runtime": {
             "app_env": settings.app_env,
-            "version": "0.1.0",
+            "version": APP_VERSION,
             "database_url": _mask_database_url(settings.database_url),
             "data_dir": str(ROOT_DIR / "backend" / "data"),
             "env_file": str(ENV_PATH),

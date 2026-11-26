@@ -17,6 +17,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 ROOT_DIR = BACKEND_DIR.parent
 DATA_DIR = BACKEND_DIR / "data"
 
+# 版本号只有这一处。改版本时改这里，健康检查、设置页、OpenAPI 会一起跟上。
+APP_VERSION = "0.2.0"
+
 
 
 

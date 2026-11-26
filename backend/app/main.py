@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
-from app.config import DATA_DIR, settings
+from app.config import APP_VERSION, DATA_DIR, settings
 from app.infrastructure.db.session import init_db
 
 
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="A4S API",
     description="Agent For Students — 大学生个人学习助手",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -61,7 +61,7 @@ app.include_router(api_router, prefix="/api")
 def root() -> dict:
     return {
         "name": "A4S",
-        "version": "0.1.0",
+        "version": APP_VERSION,
         "docs": "/docs",
         "health": "/api/health",
         "env": settings.app_env,

@@ -42,6 +42,10 @@
 |---|---|
 | ![错题本](./docs/screenshots/05-wrongbook.png) | ![回顾](./docs/screenshots/06-review.png) |
 
+学习计划（v0.2）：左侧是这次「查了什么、出了几道题」，右侧是历史；每一步都能点开看原始返回。
+
+![学习计划](./docs/screenshots/10-plan.png)
+
 深色主题：
 
 ![深色概览](./docs/screenshots/08-overview-dark.png)
