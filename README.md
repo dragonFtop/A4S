@@ -12,6 +12,14 @@
 
 ![学习概览](./docs/screenshots/01-overview.png)
 
+## 系统架构
+
+浏览器调 `client`，`client` 复用 `shared` 内容栈读写本地 `client.db`；模型与邮件是外部依赖，公共服务端只承载身份、授权与小组公共库，可离线运行。
+
+![A4S 系统架构](./docs/screenshots/14-architecture.png)
+
+[可交互版本（支持深浅色与缩放）](./docs/architecture.html)
+
 ---
 
 ## 能做什么
