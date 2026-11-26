@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   BookOpen,
   CalendarClock,
+  CalendarRange,
   FileText,
   LayoutDashboard,
   ListChecks,
@@ -25,6 +26,7 @@ const NAV_GROUPS = [
       { to: '/chat', label: '问答', icon: MessageSquareText, count: null },
       { to: '/practice', label: '练习', icon: ListChecks, count: null },
       { to: '/wrong', label: '错题本', icon: NotebookPen, count: 'wrong' },
+      { to: '/plan', label: '计划', icon: CalendarRange, count: null },
     ],
   },
   {
@@ -40,6 +42,7 @@ const TITLES: Record<string, string> = {
   '/chat': '问答',
   '/practice': '练习',
   '/wrong': '错题本',
+  '/plan': '计划',
   '/review': '回顾',
   '/settings': '设置',
 }

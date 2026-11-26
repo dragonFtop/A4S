@@ -864,3 +864,143 @@ export const runScheduleNow = () =>
 /** 真发一封测试邮件（不是只测登录） */
 export const testMail = (overrides: Record<string, unknown> = {}) =>
   apiPost<{ ok: boolean; message: string }>('/settings/test-mail', { overrides })
+
+/* ---------------- 学习计划（M7 规划 Agent，SSE） ---------------- */
+
+export interface PlanStep {
+  index: number
+  tool: string
+  label: string
+  args: Record<string, unknown>
+  ok: boolean
+  brief: string
+  /** 返回值的截断预览，用于「点开看这一步拿到了什么」 */
+  preview: string
+  elapsed_ms: number
+  /** generate_practice 才有：可直接跳到那套草稿 */
+  session_id?: string | null
+}
+
+export interface PlanResult {
+  plan_id: string
+  markdown: string
+  chars: number
+  steps: number
+  elapsed_seconds: number
+}
+
+export interface PlanStats {
+  documents: number
+  sessions: number
+  avg_score: number
+  wrong: number
+}
+
+export interface PlanBrief {
+  id: string
+  goal: string
+  excerpt: string
+  created_at: string
+  stats: PlanStats
+  steps: number
+}
+
+export interface PlanDetail extends PlanBrief {
+  markdown: string
+  meta: {
+    steps?: Array<{
+      tool: string
+      label: string
+      args: Record<string, unknown>
+      ok: boolean
+      elapsed_ms: number
+      brief?: string
+      result: Record<string, unknown>
+    }>
+    stats?: { documents: number; sessions: number; avg_score: number; wrong: number }
+    model?: string
+    elapsed_seconds?: number
+    generated_at?: string
+  }
+}
+
+export interface PlanMeta {
+  steps_max: number
+  tools: Array<{ name: string; label: string }>
+  limits: string[]
+}
+
+export const getPlanMeta = () => apiGet<PlanMeta>('/plan/meta')
+
+export const listPlans = (limit = 20) => apiGet<PlanBrief[]>(`/plan?limit=${limit}`)
+
+export const getPlan = (id: string) => apiGet<PlanDetail>(`/plan/${id}`)
+
+export const deletePlan = (id: string) => apiDelete<{ deleted: string }>(`/plan/${id}`)
+
+export interface PlanHandlers {
+  onStart?: (info: { steps_max: number; goal: string; today: string }) => void
+  onThinking?: (info: { step: number; steps_max: number }) => void
+  onStep?: (step: PlanStep) => void
+  onPlan?: (plan: PlanResult) => void
+  onNoData?: (detail: string) => void
+  onNoPlan?: (info: { detail: string; elapsed_seconds: number }) => void
+  onError?: (detail: string) => void
+  onDone?: () => void
+}
+
+/**
+ * 规划用的 SSE：和问答同一个套路（POST + fetch 读流）。
+ * 区别是它要跑 3~6 步、每步之间可能相隔十几秒，所以 `thinking` 也是一条正式事件——
+ * 界面要能区分「正在等模型」和「卡住了」。
+ */
+export async function planStream(
+  body: { goal?: string },
+  handlers: PlanHandlers,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(`${BASE}/plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    const detail = await res.json().catch(() => ({}))
+    throw new ApiError(detail.detail ?? `请求失败（${res.status}）`, res.status)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let splitAt = buffer.indexOf('\n\n')
+    while (splitAt >= 0) {
+      const block = buffer.slice(0, splitAt)
+      buffer = buffer.slice(splitAt + 2)
+      splitAt = buffer.indexOf('\n\n')
+      let event = ''
+      let data = ''
+      for (const line of block.split('\n')) {
+        if (line.startsWith('event: ')) event = line.slice(7)
+        else if (line.startsWith('data: ')) data = line.slice(6)
+      }
+      if (!event) continue
+      const parsed = data ? JSON.parse(data) : {}
+      if (event === 'start') handlers.onStart?.(parsed)
+      else if (event === 'thinking') handlers.onThinking?.(parsed)
+      else if (event === 'step') handlers.onStep?.(parsed as PlanStep)
+      else if (event === 'plan') handlers.onPlan?.(parsed as PlanResult)
+      else if (event === 'no_data') handlers.onNoData?.(parsed.detail ?? '')
+      else if (event === 'no_plan')
+        handlers.onNoPlan?.({
+          detail: parsed.detail ?? '',
+          elapsed_seconds: parsed.elapsed_seconds ?? 0,
+        })
+      else if (event === 'error') handlers.onError?.(parsed.detail ?? '生成失败')
+      else if (event === 'done') handlers.onDone?.()
+    }
+  }
+}

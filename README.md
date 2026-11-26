@@ -9,6 +9,7 @@
 > - 产品规约：`docs/PRD.md`｜任务清单：`docs/TASKS.md`｜逐模块详解：`docs/BACKEND_CODE_GUIDE.md`
 > - 架构取舍（为什么这里不用 Agent）：`docs/AGENT_DECISION.md`
 > - v0.1 已完成 **145 / 145** 项，13 条 P0 需求全部通过（验收表见 PRD §10）。
+> - v0.2 追加 **FR-14 学习计划**（30 项）：`/plan` 页 + `POST /api/plan`，全项目唯一的 Agent 回路。
 
 ![学习概览](./docs/screenshots/01-overview.png)
 
@@ -28,6 +29,7 @@
 | **错题本** | 答错自动收录，按题目去重累加次数；按主题 / 资料 / 题型 / 时间筛选；勾选重练 |
 | **回顾报告** | 聚合 7 / 14 / 30 天的资料与练习，按主题分组输出五个部分：新增资料、练习情况、错题整理、薄弱点、复习建议 |
 | **定时与邮件** | 每周定时生成报告并发到邮箱；可关闭；失败会记录原因并在界面提示 |
+| **学习计划** | 说一句目标，按你的资料与错题排出一份 7 天计划；过程可见（查了什么、出了几道题），每个数字都能点开看到出处 |
 | **可配置** | LLM / Embedding / SMTP 全部可在界面配置，密钥打码显示，支持「测试连接」与「发送测试邮件」 |
 
 ## 界面
@@ -129,17 +131,17 @@ npm run dev
 
 ```
 backend/app/
-├── api/                 # 12 个路由模块：收请求、发响应，不写业务
+├── api/                 # 13 个路由模块：收请求、发响应，不写业务
 ├── schemas/             # 出入参（Pydantic），前后端的契约
 ├── domain/              # 业务对象（dataclass + 枚举），不依赖框架
-├── services/            # 业务规则：入库/索引/笔记/问答/练习/判分/回顾
+├── services/            # 业务规则：入库/索引/笔记/问答/练习/判分/回顾/计划
 ├── repositories/        # 数据存取（一张表一个文件），SQL 只在这里
 ├── infrastructure/      # 外部能力：db / llm / parsers / generators / mail / scheduler
 └── main.py              # 启动：迁移 → 种子 → 挂调度
 frontend/src/
 ├── api/client.ts        # 全部接口封装
 ├── components/          # ui 基础件 + kb / notes / practice 业务组件
-├── pages/               # 概览 / 知识库 / 笔记 / 问答 / 练习 / 错题本 / 回顾 / 设置
+├── pages/               # 概览 / 知识库 / 笔记 / 问答 / 练习 / 错题本 / 计划 / 回顾 / 设置
 └── styles/              # tokens.css（令牌）+ pages.css（页面）
 ```
 
@@ -170,6 +172,7 @@ cd backend
 .venv/Scripts/python.exe scripts/smoke_m4.py    # 出题
 .venv/Scripts/python.exe scripts/smoke_m4b.py   # 作答判分与错题本
 .venv/Scripts/python.exe scripts/smoke_m5.py    # 回顾报告与定时推送
+.venv/Scripts/python.exe scripts/smoke_m7.py    # 学习计划 Agent（--real 走真实模型）
 ```
 
 `smoke_m5.py` 覆盖 50 项断言：空库提示性报告、时间窗过滤、数字与库一致、模型降级、邮件失败不丢报告、调度启停。
@@ -214,9 +217,13 @@ cd backend
 - **笔记不回灌知识库**：笔记是学习产物，不参与检索，避免「自己写的话被当成资料引用」。
 - **定时任务不持久**：进程内调度，重启后按配置重新装载，关机期间不补发。
 - **模型输出需容错**：所有解析路径都有校验（来源编号白名单、答案归一化、JSON 容错），但极端情况下可能少出几道题。
+- **计划不做后台常驻**：规划 Agent 一次会话出一份计划，关掉页面就停，不会自己继续跑；只做 7 天粒度，没有月/季度规划（数据撑不住）。
 
 ## 版本状态
 
 v0.1.0 · 本地工作区 · 145/145 项完成，PRD 第 10 章 13 条 P0 全部通过。
 
-后续迭代方向（不在 v0.1 范围）：OCR、多用户、移动端、笔记回灌、补发机制、题型自定义。
+v0.2.0（在建）· 新增 FR-14 学习计划：全项目唯一带「动作 → 观察 → 再决定」回路的模块，
+6 步上限、5 个工具、每步可溯源。判据见 [`docs/AGENT_DECISION.md`](./docs/AGENT_DECISION.md)。
+
+后续迭代方向：OCR、多用户、移动端、笔记回灌、补发机制、题型自定义、日历排期。

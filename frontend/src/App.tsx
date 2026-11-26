@@ -16,6 +16,7 @@ const Notes = lazy(() => import('./pages/Notes'))
 const NoteEditor = lazy(() => import('./pages/NoteEditor'))
 const Chat = lazy(() => import('./pages/Chat'))
 const Review = lazy(() => import('./pages/Review'))
+const Plan = lazy(() => import('./pages/Plan'))
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="/chat" element={<Chat />} />
             <Route path="/practice" element={<Practice />} />
             <Route path="/wrong" element={<WrongBook />} />
+            <Route path="/plan" element={<Plan />} />
             <Route path="/review" element={<Review />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/overview" replace />} />

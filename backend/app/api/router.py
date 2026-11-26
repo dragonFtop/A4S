@@ -10,6 +10,7 @@ from app.api import (
     health,
     notes,
     overview,
+    plan,
     practice,
     review,
     schedule,
@@ -24,6 +25,7 @@ api_router.include_router(topics.router)
 api_router.include_router(documents.router)
 api_router.include_router(notes.router)
 api_router.include_router(chat.router)
+api_router.include_router(plan.router)
 api_router.include_router(practice.router)
 api_router.include_router(review.router)
 api_router.include_router(settings.router)

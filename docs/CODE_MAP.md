@@ -13,9 +13,9 @@
 
 | 目录 | 行数 | 管什么 | 不该出现什么 |
 |---|---|---|---|
-| `app/api/` | ~1650 | **收请求、发响应**。解析参数、调服务、把结果转成 Pydantic 模型 | 不能写业务规则、不能直接查数据库 |
-| `app/services/` | ~3200 | **业务规则**。什么算完成、怎么组卷、怎么判分、报告怎么聚合 | 不能出现 `Request` / `HTTPException` |
-| `app/repositories/` | ~1600 | **存取数据**。SQL 只写在这里 | 不能写业务判断 |
+| `app/api/` | ~1760 | **收请求、发响应**。解析参数、调服务、把结果转成 Pydantic 模型 | 不能写业务规则、不能直接查数据库 |
+| `app/services/` | ~3900 | **业务规则**。什么算完成、怎么组卷、怎么判分、报告怎么聚合、计划怎么排 | 不能出现 `Request` / `HTTPException` |
+| `app/repositories/` | ~1700 | **存取数据**。SQL 只写在这里 | 不能写业务判断 |
 | `app/infrastructure/` | ~2400 | **外部能力**：数据库会话、LLM、解析器、向量库、邮件、定时器 | 不能写业务流程 |
 | `app/domain/` | ~250 | **业务对象**（dataclass 实体 + 枚举） | 不能 import SQLAlchemy |
 | `app/schemas/` | ~620 | **接口出入参**（Pydantic），前后端的契约 | 不能写业务逻辑 |
@@ -97,6 +97,10 @@ practice_service.py: submit_session()
 | 加一张表 | `infrastructure/db/models.py` + 写一个迁移 | 迁移在 `migrations/versions/` |
 | 改业务规则（比如未答算不算错） | 对应 `services/*.py` | 不要改 `api`，那里只做转发 |
 | 改前端调用的字段名 | 先改 `schemas/`，再改 `frontend/src/api/client.ts` | 两边要一致 |
+| 改计划 Agent 能查什么 | `services/plan_tools.py` 的 `TOOLS` | 加一个函数 + 登记即可，循环不用改 |
+| 改计划 Agent 的提示词（几天、写什么） | `services/plan_prompts.py` | 工具说明书与计划结构都在这里 |
+| 改 Agent 的步数上限 / 防打转 | `services/plan_agent.py` 的 `MAX_STEPS`、`MAX_SAME_TOOL_CALLS` | 循环本体 30 行，别往这里加业务 |
+| 看清「它为什么这么排」 | 计划详情里的 `meta.steps` | 每步的工具名、入参、结果摘要都在里面 |
 
 ---
 

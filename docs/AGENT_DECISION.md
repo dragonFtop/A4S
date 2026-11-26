@@ -185,6 +185,11 @@ for step in range(MAX_STEPS):                 # 硬上限，防止无限循环
 
 这条也回答了 3.5 的担心：输出永远可溯源，最坏的失败模式是「计划写得平庸」，而不是「数字对不上还查不出从哪来」。
 
+> **落地状态（2026-11-26）**：已实现，代码见 `services/plan_agent.py`（循环 30 行）、
+> `plan_tools.py`（5 个工具）、`plan_prompts.py`（协议与约束）、`api/plan.py`、`frontend/src/pages/Plan.tsx`。
+> 后端新增 6 个文件约 1000 行（不含 421 行冒烟脚本），前端约 550 行。
+> 逐模块实现说明见 `docs/BACKEND_CODE_GUIDE.md` §26，验收项见 `docs/TASKS.md` M7。
+
 ---
 
 ## 4. 为什么不做「问答 Agent」和「温习 Agent」

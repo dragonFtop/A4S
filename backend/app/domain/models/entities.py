@@ -216,6 +216,23 @@ class WrongAnswer:
 
 
 @dataclass(slots=True)
+class StudyPlan:
+    """一次规划会话的产物：一份 7 天计划 + 生成过程快照。
+
+    `markdown` 是给人看的，`meta` 是给审计看的——里面按顺序记着每一步调了哪个工具、
+    入参是什么、返回摘要是什么。计划里的每个数字都要能在 `meta["steps"]` 里找到出处，
+    这是「不许自己算数」这条边界的落地方式。
+    """
+
+    id: str
+    markdown: str
+    goal: str = ""
+    meta: dict = field(default_factory=dict)
+    created_at: datetime = field(default_factory=_now)
+    user_id: str = "local"
+
+
+@dataclass(slots=True)
 class ReviewReport:
     """定时回顾报告。按周/月/季度生成，按主题聚合错题和笔记。"""
     id: str

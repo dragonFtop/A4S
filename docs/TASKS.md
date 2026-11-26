@@ -3,7 +3,8 @@
 > 与 `docs/PRD.md` 配套使用。完成一项即勾选；与规约冲突时先改 PRD 再改代码。
 > 图例：`[ ]` 未开始 · `[~]` 进行中 · `[x]` 已完成
 >
-> **当前状态（2026-11-25）**：v0.1 全部完成，145/145。PRD 第 10 章 13 条 P0 已逐条置为「通过」。
+> **当前状态（2026-11-26）**：v0.1 全部完成 145/145，PRD 第 10 章 13 条 P0 已逐条置为「通过」；
+> v0.2 追加的 M7 学习计划 Agent 30 项亦已完成（合计 175/175）。
 > 审核导航见 `docs/AUDIT_GUIDE.md`；测试脚本见 `backend/scripts/smoke_m*.py`。
 
 ---
@@ -365,6 +366,66 @@
 
 ---
 
+## M7 — 学习计划 Agent（v0.2 首个里程碑）
+
+> 全项目唯一带「动作 → 观察 → 再决定」回路的模块。设计依据见 `docs/AGENT_DECISION.md` 第 3 节，
+> 边界见 §3.6：只诊断与排程，不生产内容、不评分、不写笔记。
+
+### 数据层
+
+- [x] `domain/models/entities.py` 新增 `StudyPlan`（id / goal / markdown / meta / created_at）
+- [x] `infrastructure/db/models.py` 新增 `StudyPlanORM`；迁移 `b7e3a1c95d42_study_plans.py`
+- [x] `repositories/plans.py`：`list` / `get` / `create` / `update_meta` / `delete`，
+      `update_meta` 做浅合并而不是覆盖（`elapsed_seconds` 与 `steps` 是后补的）
+
+### 工具层（`services/plan_tools.py`，304 行）
+
+- [x] `get_progress()`：资料数、练习套数与已完成数、平均分、错题总数与近 7 天新增
+- [x] `list_weak_points(limit)`：按主题聚合错误率，返回 `error_rate` 与样本数；无数据时返回 `note`
+- [x] `list_wrong_answers(limit)`：题干、错次、上次作答，题干截到 120 字
+- [x] `generate_practice(...)`：**同步复用** `practice_service` 的出题器，不自己写题
+- [x] `save_plan(markdown, goal, meta)`：唯一写操作；超 8000 字抛 `ToolError` 让模型压缩
+- [x] 统一出口 `_fit()`：超 2000 字符先砍列表、再砍长文本，保住数字与结构
+- [x] 参数错误翻成人话（`limit` 越界夹到 1~20 而不是报 500）
+
+### Agent 循环（`services/plan_agent.py`，304 行）
+
+- [x] `plan_prompts.py`：工具说明书、动作 JSON 协议、计划结构（7 天 / 每天做什么 / 完成标准）、
+      「数字只能来自工具返回」「平均分是分值不是百分比」「练习套数含草稿」三条数值约束
+- [x] `MAX_STEPS = 6`；最后一步注入「信息够用了，立刻 save_plan」
+- [x] `MAX_SAME_TOOL_CALLS = 2`：同一只读工具第三次调用直接回「已经查过了」，不让它原地打转
+- [x] `parse_action()`：容忍 ```json 代码块、前后夹解释、`args` 缺失、`tool` 别名；
+      解析不出就发一条纠正消息再试，不猜不硬解释
+- [x] 循环前空数据检查：资料与练习都为 0 时发 `no_data` 直接返回，不生成计划
+- [x] 每步推 SSE：`start` / `thinking` / `step` / `plan` / `done`；
+      失败出口 `no_plan`（步数用尽）与 `error`（模型报错），二者都只给已查到的结论
+- [x] `step` 事件带 `brief`（一句话摘要）、`preview`（原始返回前 400 字）、`elapsed_ms`、`session_id`
+- [x] 每一步写入 `study_plans.meta.steps`：工具、入参、是否成功、结果摘要——数字可溯源的凭据
+
+### 接口层
+
+- [x] `POST /api/plan` 返回 SSE；`GET /api/plans`、`GET /api/plans/{id}`、`DELETE /api/plans/{id}`、`GET /api/plan/meta`
+- [x] `schemas/plan.py`：`PlanIn` / `PlanBrief` / `PlanDetail` / `PlanMetaOut`
+- [x] 注册到 `api/router.py`
+
+### 前端
+
+- [x] `api/client.ts` 新增 `planStream()`（复用 SSE 解析）与 `StudyPlan` 类型
+- [x] `pages/Plan.tsx`（388 行）：目标输入 → 生成 → 步骤时间线 → Markdown 计划 → 历史列表
+- [x] 时间线每步显示「工具名 + 一句话摘要 + 耗时」，点开 `details` 看入参与原始返回
+- [x] 计划里提到「做这套题」时给「去作答」出口，直接跳 `/practice?session=…`
+- [x] 路由 `/plan` + 导航「计划」入口；`pages.css` 增 `plan-*` 样式与 900px 断点
+
+### 验证
+
+- [x] `scripts/smoke_m7.py`（421 行，FakeLLM）覆盖六条路径：空数据拒出、正常出计划、
+      工具报错换路、步数用尽、动作格式错误后纠正、每个数字都能对回某一步工具返回
+- [x] 真实模型实测：生成完整 7 天计划，无编造数字、未出现「约 / 大概」
+- [x] `tsc --noEmit` 干净、`vite build` 通过、1440 / 1280 / 880 三档视口无横向溢出
+- [x] 明暗两主题截图核对（`.workbuddy/tmp` 临时文件已清）
+
+---
+
 ## 进度概览
 
 | 里程碑 | 任务数 | 已完成 | 状态 |
@@ -380,4 +441,5 @@
 | M4 练习 | 14 | 14 | 已完成 |
 | M5 回顾 | 11 | 11 | 已完成 |
 | M6 收尾 | 9 | 9 | 已完成 |
-| **合计** | **145** | **145** | 100% |
+| M7 学习计划 Agent | 30 | 30 | 已完成 |
+| **合计** | **175** | **175** | 100% |

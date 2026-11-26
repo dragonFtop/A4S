@@ -179,6 +179,21 @@ class WrongAnswerORM(Base):
     last_wrong_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
 
 
+class StudyPlanORM(Base):
+    """学习计划。一行一次规划会话：markdown 是产物，meta 存过程（每步工具调用与返回摘要）。"""
+
+    __tablename__ = "study_plans"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # 用户这次补充的学习目标，可为空
+    goal: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    markdown: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 过程快照：steps / stats / practice_session_id / model / elapsed_seconds
+    meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, default="local")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+
+
 class ReviewReportORM(Base):
     __tablename__ = "review_reports"
 
