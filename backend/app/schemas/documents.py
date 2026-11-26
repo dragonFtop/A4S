@@ -34,6 +34,7 @@ class UploadOut(BaseModel):
 
 
 class ChunkOut(BaseModel):
+
     id: str
     index: int
     text: str
@@ -49,11 +50,12 @@ class DocumentStatsOut(BaseModel):
 
 
 class WebFetchIn(BaseModel):
+    """从网页中抓取页面的请求数据模型：url即可"""
     url: str = Field(min_length=1, max_length=2048)
 
 
 class WebFetchOut(BaseModel):
-    """抓取预览。markdown 供用户编辑确认后再走 /paste 入库。"""
+    """网页抓取结果响应数据模型，大模型转为markdown"""
 
     url: str
     title: str

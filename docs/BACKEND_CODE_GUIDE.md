@@ -6,6 +6,12 @@
 > **当前状态（2026-11-26）**：v0.1 全部完成 145/145，PRD 第 10 章 13 条 P0 已逐条置为「通过」；
 > v0.2 追加的 M7 学习计划 Agent 24 项亦已完成（合计 175/175）。
 > 审核导航见 `docs/AUDIT_GUIDE.md`；测试脚本见 `backend/scripts/smoke_m*.py`。
+>
+> ⚠️ **本文是按里程碑记录的完成清单，保留当时的目录与路径，不随重构回改。**
+> v0.2 做过一次后端压平（`domain/` + `repositories/` + `infrastructure/` 合并到
+> `app/` 顶层），当前的目录职责与"改某处该动哪里"以
+> [CODE_MAP.md](./CODE_MAP.md) 为准；下文出现的 `repositories/xxx.py`、
+> `infrastructure/xxx.py`、`domain/models/entities.py` 等路径均指重构前的位置。
 
 ---
 

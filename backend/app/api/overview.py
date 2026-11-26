@@ -5,12 +5,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.infrastructure.db.session import get_db
-from app.repositories.stats_repo import StatsRepository
+from app.db import get_db
+from app import stats
 
 router = APIRouter(tags=["overview"])
 
 
 @router.get("/overview")
 def overview(db: Session = Depends(get_db)) -> dict:
-    return StatsRepository(db).summary()
+    return stats.summary(db)

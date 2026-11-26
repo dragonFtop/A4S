@@ -15,22 +15,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import DATA_DIR
-from app.domain.models.entities import (
+from app.models import (
     UNCATEGORIZED_ID,
     Chunk,
     Document,
     DocumentStatus,
 )
-from app.infrastructure.db.session import SessionLocal, get_vector_store
-from app.infrastructure.llm.bge_local import build_embedding
-from app.infrastructure.parsers.base import DocumentParser
-from app.infrastructure.parsers.builtin import PARSERS
-from app.infrastructure.splitters.text_splitter import SplitConfig, split_document
-from app.repositories.sqlalchemy_repo import (
-    SqlAlchemyChunkRepository,
-    SqlAlchemyDocumentRepository,
-    SqlAlchemyTopicRepository,
-)
+from app.db import SessionLocal, get_vector_store
+from app.llm import build_embedding
+from app.parsers import DocumentParser
+from app.parsers import PARSERS
+from app.splitter import SplitConfig, split_document
+from app.store import Chunks
+from app.store import Documents
+from app.store import Topics
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +104,7 @@ def create_from_upload(
         tag_ids=tag_ids or [],
         storage_path=rel_path,
     )
-    SqlAlchemyDocumentRepository(db).add(doc)
+    Documents(db).add(doc)
     return doc
 
 
@@ -139,7 +137,7 @@ def create_from_text(
         tag_ids=tag_ids or [],
         storage_path=rel_path,
     )
-    SqlAlchemyDocumentRepository(db).add(doc)
+    Documents(db).add(doc)
     return doc
 
 
@@ -150,7 +148,7 @@ def run_ingest(document_id: str) -> None:
     """后台任务入口。自己开 Session，避免跨线程复用请求的会话。"""
     db = SessionLocal()
     try:
-        docs = SqlAlchemyDocumentRepository(db)
+        docs = Documents(db)
         doc = docs.get(document_id)
         if doc is None:
             logger.warning("待处理资料不存在：%s", document_id)
@@ -208,7 +206,7 @@ def _process(db, doc: Document) -> int:
     ]
 
     # 幂等：先清掉上一次可能残留的片段与向量
-    chunk_repo = SqlAlchemyChunkRepository(db)
+    chunk_repo = Chunks(db)
     old_ids = [c.id for c in chunk_repo.list_by_document(doc.id)]
     if old_ids:
         store.delete_chunks(old_ids)
@@ -235,12 +233,12 @@ def _embed_batched(texts: list[str]) -> list[list[float]]:
 
 def delete_document(db, document_id: str) -> None:
     """删资料：向量 → 片段 → 关联 → 文档 → 原始文件。顺序不能反。"""
-    docs = SqlAlchemyDocumentRepository(db)
+    docs = Documents(db)
     doc = docs.get(document_id)
     if doc is None:
         return
 
-    chunk_repo = SqlAlchemyChunkRepository(db)
+    chunk_repo = Chunks(db)
     chunk_ids = [c.id for c in chunk_repo.list_by_document(document_id)]
     if chunk_ids:
         get_vector_store().delete_chunks(chunk_ids)
@@ -260,11 +258,11 @@ def delete_document(db, document_id: str) -> None:
 
 def move_document_topic(db, document_id: str, topic_id: str) -> None:
     """改归属主题。向量分区键必须同步，否则按主题检索会漏掉这份资料。"""
-    SqlAlchemyDocumentRepository(db).set_topic(document_id, topic_id)
-    chunk_ids = [c.id for c in SqlAlchemyChunkRepository(db).list_by_document(document_id)]
+    Documents(db).set_topic(document_id, topic_id)
+    chunk_ids = [c.id for c in Chunks(db).list_by_document(document_id)]
     # vec0 不能原地改分区键，但可原样搬移向量，无需重新 embedding
     get_vector_store().repartition(chunk_ids, topic_id)
 
 
 def topic_exists(db, topic_id: str) -> bool:
-    return SqlAlchemyTopicRepository(db).get(topic_id) is not None
+    return Topics(db).get(topic_id) is not None

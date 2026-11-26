@@ -141,19 +141,19 @@ def main() -> int:
         check("AI 补写计数", cleaned.count("<!--ai-->") == 1, str(cleaned.count("<!--ai-->")))
 
         print("\n== 7.5 手工角标对齐（create / update 也认 [[chunk:id]]）==")
-        from app.infrastructure.db.models import ChunkORM, DocumentORM
-        from app.infrastructure.db.session import SessionLocal
+        from app.models import Chunk, Document
+        from app.db import SessionLocal
 
         with SessionLocal() as session:
             session.merge(
-                DocumentORM(
+                Document(
                     id="doc-smoke", name="冒烟资料", ext="txt", size=12, status="ready",
                     chunk_count=1, topic_id=topic_id,
                 )
             )
             session.merge(
-                ChunkORM(
-                    id="chunk-smoke", document_id="doc-smoke", chunk_index=0,
+                Chunk(
+                    id="chunk-smoke", document_id="doc-smoke", index=0,
                     text="这是真实片段的正文，用来做来源摘要。", topic_id=topic_id,
                 )
             )

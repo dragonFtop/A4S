@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.domain.models.entities import Question, QuestionType
+from app.models import Question, QuestionType
 
 # 选项字母：只认 A~F，够覆盖四选一与多选；更长的选项模型自己也记不住
 _LETTER = re.compile(r"[A-F]")

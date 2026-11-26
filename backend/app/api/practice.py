@@ -9,15 +9,15 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import (
+from app.models import (
     UNCATEGORIZED_ID,
     UNCATEGORIZED_NAME,
     PracticeSession,
     Question,
     WrongAnswer,
 )
-from app.infrastructure.db.session import get_db
-from app.repositories.sqlalchemy_repo import SqlAlchemyTopicRepository
+from app.db import get_db
+from app.store import Topics
 from app.schemas.practice import (
     AnswerIn,
     AnswerOut,
@@ -262,7 +262,7 @@ def submit(
 
 
 def _topic_names(db: Session) -> dict[str, str]:
-    return {topic.id: topic.name for topic in SqlAlchemyTopicRepository(db).list()}
+    return {topic.id: topic.name for topic in Topics(db).list()}
 
 
 def _wrong_out(item: WrongAnswer, topics: dict[str, str]) -> WrongOut:

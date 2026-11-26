@@ -458,6 +458,31 @@
 
 ---
 
+## v0.2 — 后端压平（个人项目不背企业级骨架）
+
+目标只有一条：**功能一个不少，代码尽量简单**。API 响应结构不变、前端零改动。
+
+- [x] `domain/models/entities.py` 与 `infrastructure/db/models.py` 合并为 `app/models.py`（一张表一个类）
+- [x] 状态列改用 `Enum(values_callable=...)`，读出来即枚举，原有 `x.status.value` 一处不用改
+- [x] `PracticeSession.questions/answers`、`WrongAnswer.question` 用 property 双向序列化，删掉 `save()` 里的手工搬运
+- [x] `Base.__init__` 预填列默认值（原先 dataclass 的 `default_factory` 语义），落库前读到的不再是 `None`
+- [x] `repositories/` 12 文件合并为 `app/store.py` 的 7 个类，类名去掉 `SqlAlchemy` 前缀
+- [x] 删除 `sqlalchemy_repo.py`（纯转发）、`_converters.py`（已并入 models）
+- [x] `infrastructure/` 拆到 `app/` 顶层：`db.py` / `llm.py` / `parsers.py` / `splitter.py` / `vectorstore.py` / `fts.py` / `mailer.py` / `scheduler.py` / `config_store.py` / `webfetch.py` / `topic_seed.py`
+- [x] `llm/` 三文件合并为 `app/llm.py`；`parsers/` 合并为 `app/parsers.py`（4 个实现，抽象保留）
+- [x] `generators/` 三文件合并为 `app/practice_generate.py`，`LLMTypedGenerator` 改为 `generate_questions()`
+- [x] `stats_repo.py` → `app/stats.py`、`review_repo.py` → `app/reviews.py`，类改模块级函数
+- [x] `migrations/env.py` 同步新路径
+- [x] 8 个 smoke 脚本改 import（约 20 行），断言一条没删
+- [x] 全量回归：m2 22 / m25 46 / m3 31 / m4 61 / m4b 84 / m5 50 / m6 43 / m7 43 = **380 项全过**
+- [x] `tsc --noEmit` 干净、`vite build` 通过
+- [x] 文档同步：`CODE_MAP.md`（§1 职责表、§6 重写、§7 追加重构记录）、`BACKEND.md`（一句话架构、依赖图、层级表、代码地图、§3.2）、`AUDIT_GUIDE.md`（审核顺序与代码地图）、`README.md`
+
+规模：85 文件 / 10861 行 → **59 文件 / 10492 行**。行数只少 3%，但
+**改一个字段的成本从 5 处降到 1 处**，目录层级从 5 层降到 2 层。
+
+---
+
 ## 进度概览
 
 | 里程碑 | 任务数 | 已完成 | 状态 |
@@ -475,4 +500,5 @@
 | M6 收尾 | 9 | 9 | 已完成 |
 | M7 学习计划 Agent | 33 | 33 | 已完成 |
 | v0.2 追加：空库问答 | 17 | 17 | 已完成 |
-| **合计** | **195** | **195** | 100% |
+| v0.2 追加：后端压平 | 15 | 15 | 已完成 |
+| **合计** | **210** | **210** | 100% |

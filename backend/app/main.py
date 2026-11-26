@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.config import APP_VERSION, DATA_DIR, settings
-from app.infrastructure.db.session import init_db
+from app.db import init_db
 
 
 @asynccontextmanager
@@ -20,14 +20,14 @@ async def lifespan(app: FastAPI):
     (DATA_DIR / "uploads").mkdir(parents=True, exist_ok=True)
     init_db()
     # 内置「未分类」主题必须存在，documents.topic_id 的默认值指向它
-    from app.infrastructure.db.seed import ensure_builtin
-    from app.infrastructure.db.session import SessionLocal
+    from app.topic_seed import ensure_builtin
+    from app.db import SessionLocal
 
     with SessionLocal() as db:
         ensure_builtin(db)
 
     # 定时回顾：按 scheduler_enabled 决定是否装载任务
-    from app.infrastructure import scheduler
+    from app import scheduler
 
     scheduler.start()
     try:

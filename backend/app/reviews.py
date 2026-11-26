@@ -1,12 +1,9 @@
-"""回顾报告的数据来源（FR-07）。
+"""回顾报告：时间窗聚合 + 报告存取（FR-07）。
 
-两个职责合在一个模块里，因为它们共享同一套「时间窗」口径：
+两个职责在一个模块里，因为共享同一套「时间窗」口径：
 
 1. `collect_window`：把一段时间内的新增资料、练习作答、错题聚合成结构化指标；
-2. `SqlAlchemyReviewRepository`：报告本体的持久化。
-
-为什么单独开文件而不塞进 `sqlalchemy_repo.py`：那份文件已经 800 行，
-而这里查的是「跨表的时间窗投影」，读多写少，性质更接近 `stats_repo.py`。
+2. `save / get / list / latest / delete`：报告本体的持久化。
 
 口径约定（与练习模块保持一致，避免两处算出不同的正确率）
 ----------------------------------------------------------
@@ -22,17 +19,14 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import (
+from app.models import (
     UNCATEGORIZED_ID,
     UNCATEGORIZED_NAME,
+    Document,
+    PracticeSession,
     PracticeStatus,
     ReviewReport,
-)
-from app.infrastructure.db.models import (
-    DocumentORM,
-    PracticeSessionORM,
-    ReviewReportORM,
-    TopicORM,
+    Topic,
 )
 
 
@@ -60,10 +54,10 @@ def _accuracy(correct: int, answered: int) -> float:
 def _documents(db: Session, start: datetime, end: datetime) -> dict:
     """窗口内新增资料，按主题分组。"""
     rows = db.execute(
-        select(DocumentORM, TopicORM)
-        .outerjoin(TopicORM, TopicORM.id == DocumentORM.topic_id)
-        .where(DocumentORM.created_at >= start, DocumentORM.created_at <= end)
-        .order_by(DocumentORM.created_at.desc())
+        select(Document, Topic)
+        .outerjoin(Topic, Topic.id == Document.topic_id)
+        .where(Document.created_at >= start, Document.created_at <= end)
+        .order_by(Document.created_at.desc())
     ).all()
 
     groups: dict[str, dict] = {}
@@ -104,14 +98,14 @@ def _practice(db: Session, start: datetime, end: datetime) -> dict:
     """窗口内已提交练习，按主题与题型拆分。"""
     rows = list(
         db.execute(
-            select(PracticeSessionORM)
+            select(PracticeSession)
             .where(
-                PracticeSessionORM.status == PracticeStatus.SUBMITTED.value,
-                PracticeSessionORM.finished_at.is_not(None),
-                PracticeSessionORM.finished_at >= start,
-                PracticeSessionORM.finished_at <= end,
+                PracticeSession.status == PracticeStatus.SUBMITTED.value,
+                PracticeSession.finished_at.is_not(None),
+                PracticeSession.finished_at >= start,
+                PracticeSession.finished_at <= end,
             )
-            .order_by(PracticeSessionORM.finished_at.desc())
+            .order_by(PracticeSession.finished_at.desc())
         ).scalars()
     )
 
@@ -121,12 +115,12 @@ def _practice(db: Session, start: datetime, end: datetime) -> dict:
     duration = 0.0
 
     for row in rows:
-        question_map = {item.get("id"): item for item in (row.questions or [])}
+        question_map = {item.get("id"): item for item in (row.questions_json or [])}
         duration += float((row.meta or {}).get("result", {}).get("duration_seconds") or 0)
-        questions += len(row.questions or [])
+        questions += len(row.questions_json or [])
 
         seen_topics: set[str] = set()
-        for answer in row.answers or []:
+        for answer in row.answers_json or []:
             question = question_map.get(answer.get("question_id"))
             if question is None:
                 # 题目被手动删除后作答记录会失去对应题，跳过而不是崩掉
@@ -165,7 +159,7 @@ def _practice(db: Session, start: datetime, end: datetime) -> dict:
     topic_ids = [key for key in topic_bucket if key != UNCATEGORIZED_ID]
     if topic_ids:
         for topic in db.execute(
-            select(TopicORM).where(TopicORM.id.in_(topic_ids))
+            select(Topic).where(Topic.id.in_(topic_ids))
         ).scalars():
             bucket = topic_bucket.get(topic.id)
             if bucket:
@@ -218,26 +212,11 @@ def collect_window(db: Session, *, window_days: int) -> tuple[datetime, datetime
 # ---------- 报告持久化 ----------
 
 
-def _to_report(row: ReviewReportORM) -> ReviewReport:
-    return ReviewReport(
-        id=row.id,
-        window_days=row.window_days,
-        period_start=row.period_start,
-        period_end=row.period_end,
-        markdown=row.markdown,
-        metrics=row.metrics or {},
-        created_at=row.created_at,
-    )
-
-
-class SqlAlchemyReviewRepository:
-    def __init__(self, db: Session) -> None:
-        self.db = db
-
-    def save(self, report: ReviewReport) -> None:
-        row = self.db.get(ReviewReportORM, report.id)
-        if row is None:
-            row = ReviewReportORM(
+def save(db: Session, report: ReviewReport) -> None:
+    row = db.get(ReviewReport, report.id)
+    if row is None:
+        db.add(
+            ReviewReport(
                 id=report.id,
                 window_days=report.window_days,
                 period_start=report.period_start,
@@ -246,37 +225,39 @@ class SqlAlchemyReviewRepository:
                 metrics=report.metrics,
                 created_at=report.created_at,
             )
-            self.db.add(row)
-        else:
-            row.markdown = report.markdown
-            row.metrics = report.metrics
-        self.db.commit()
-
-    def get(self, report_id: str) -> ReviewReport | None:
-        row = self.db.get(ReviewReportORM, report_id)
-        return _to_report(row) if row else None
-
-    def list(self, limit: int = 50) -> list[ReviewReport]:
-        rows = self.db.execute(
-            select(ReviewReportORM).order_by(ReviewReportORM.created_at.desc()).limit(limit)
-        ).scalars()
-        return [_to_report(row) for row in rows]
-
-    def latest(self) -> ReviewReport | None:
-        row = (
-            self.db.execute(
-                select(ReviewReportORM).order_by(ReviewReportORM.created_at.desc()).limit(1)
-            )
-            .scalars()
-            .first()
         )
-        return _to_report(row) if row else None
+    else:
+        row.markdown = report.markdown
+        row.metrics = report.metrics
+    db.commit()
 
-    def delete(self, report_id: str) -> None:
-        row = self.db.get(ReviewReportORM, report_id)
-        if row is not None:
-            self.db.delete(row)
-            self.db.commit()
 
-    def count(self) -> int:
-        return int(self.db.execute(select(func.count()).select_from(ReviewReportORM)).scalar() or 0)
+def get(db: Session, report_id: str) -> ReviewReport | None:
+    return db.get(ReviewReport, report_id)
+
+
+def list_reports(db: Session, limit: int = 50) -> list[ReviewReport]:
+    return list(
+        db.execute(
+            select(ReviewReport).order_by(ReviewReport.created_at.desc()).limit(limit)
+        ).scalars()
+    )
+
+
+def latest(db: Session) -> ReviewReport | None:
+    return (
+        db.execute(select(ReviewReport).order_by(ReviewReport.created_at.desc()).limit(1))
+        .scalars()
+        .first()
+    )
+
+
+def delete(db: Session, report_id: str) -> None:
+    row = db.get(ReviewReport, report_id)
+    if row is not None:
+        db.delete(row)
+        db.commit()
+
+
+def count(db: Session) -> int:
+    return int(db.execute(select(func.count()).select_from(ReviewReport)).scalar() or 0)

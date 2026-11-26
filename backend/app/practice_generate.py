@@ -1,9 +1,11 @@
-"""模型输出的解析与校验。
+"""出题：材料上下文 → 调模型 → 解析校验成题目。
+
+前半是本模块自己的数据结构（上下文与配置），后半是模型输出的解析与校验。
 
 模型不会永远听话：可能包一层代码块、可能在 JSON 前后写解释、可能把选项前缀
 带进正文、可能编一个不存在的片段编号。这里逐项兜住，兜不住的题直接丢弃。
 
-调用方只看到「合格题目列表」与「丢弃原因计数」，不关心这些细节。
+调用方只看到「合格题目列表」，不关心这些细节。
 """
 
 from __future__ import annotations
@@ -11,14 +13,53 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from dataclasses import dataclass, field
 from typing import Any
 
-from app.domain.models.entities import Question, QuestionType, SourceRef
-from app.infrastructure.generators.base import GenerationChunk, GenerationContext
+from app.llm import LLMProvider, build_llm
+from app.models import Question, QuestionType, SourceRef
+from app.services import practice_prompts
 
 SNIPPET_CHARS = 240
 MAX_OPTIONS = 6
 MIN_OPTIONS = 2
+
+
+# ---------------------------------------------------------------- 上下文与配置
+
+@dataclass(slots=True)
+class QuestionGenConfig:
+    total: int = 10
+    types: list[QuestionType] | None = None
+    difficulty: str = "medium"
+
+
+@dataclass(slots=True)
+class GenerationChunk:
+    """出题材料的一个片段：正文 + 定位 + 归属。"""
+
+    chunk_id: str
+    text: str
+    document_id: str
+    document_name: str
+    topic_id: str = "uncategorized"
+    page: int | None = None
+
+
+@dataclass(slots=True)
+class GenerationContext:
+    """出题上下文：来自知识库的片段。
+
+    chunks 是结构化材料（校验来源时要用），material_text 是拼给模型的正文，
+    已经带 `[chunk:id]` 编号——两者同一批片段，不要各取一份。
+    """
+
+    chunks: list[GenerationChunk] = field(default_factory=list)
+    material_text: str = ""
+    topic_names: list[str] = field(default_factory=list)
+
+    def allowed(self) -> dict[str, GenerationChunk]:
+        return {chunk.chunk_id: chunk for chunk in self.chunks}
 
 _TRUE = {"正确", "对", "是", "true", "t", "yes", "y", "√", "1"}
 _FALSE = {"错误", "错", "否", "不对", "false", "f", "no", "n", "×", "x", "0"}
@@ -250,3 +291,69 @@ def _first_topic(context: GenerationContext, sources: list[SourceRef]) -> str | 
         if chunk is not None:
             return chunk.topic_id
     return None
+
+
+# ---------------------------------------------------------------- 出题
+
+class GeneratorError(RuntimeError):
+    """模型输出不可用（不是有效 JSON、调用失败等）。"""
+
+
+async def generate_questions(
+    question_type: QuestionType,
+    context: GenerationContext,
+    config: QuestionGenConfig,
+    llm: LLMProvider | None = None,
+) -> list[Question]:
+    """按题型出题。
+
+    题型分开跑而不是一次让模型出四种：选项数、答案格式、解析写法各不相同，
+    分开写规则更清楚；数量配比由配置决定，merge 时不用二次分配；某一种题型
+    资料不足时只影响这一种，其他题型照常出。
+
+    JSON 解析失败会带一条修复指令重试一次；仍失败则抛 GeneratorError，
+    由服务层转成人话。
+    """
+    count = max(0, min(config.total, 30))
+    if count == 0 or not context.chunks:
+        return []
+
+    client = llm or build_llm()
+    messages = practice_prompts.build_messages(
+        question_type, context.material_text, count, config.difficulty
+    )
+    raw = await client.chat(messages, temperature=0.35)
+    items = parse_json_items(raw)
+    if items is None:
+        # 容错重试：只加一条修复指令，不重发材料（省 token，也避免模型换思路）
+        retry = [
+            *messages,
+            {"role": "assistant", "content": raw[:2000]},
+            {"role": "user", "content": practice_prompts.REPAIR_MESSAGE},
+        ]
+        raw = await client.chat(retry, temperature=0.1)
+        items = parse_json_items(raw)
+    if items is None:
+        raise GeneratorError(
+            f"{practice_prompts.TYPE_SPECS[question_type]['label']}：模型返回的内容不是有效 JSON"
+        )
+
+    questions: list[Question] = []
+    seen: set[str] = set()
+    for item in items:
+        question = normalize_question(item, question_type, context)
+        if question is None:
+            continue
+        key = _stem_key(question.stem)
+        if key in seen:
+            continue
+        seen.add(key)
+        questions.append(question)
+        if len(questions) >= count:
+            break
+    return questions
+
+
+def _stem_key(stem: str) -> str:
+    """去重键：去掉空白与标点，避免只改标点就算新题。"""
+    return "".join(char for char in stem if char.isalnum())

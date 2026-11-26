@@ -25,10 +25,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.config import settings
-from app.infrastructure.config_store import save_settings
-from app.infrastructure.db.session import VEC_ENABLED, SessionLocal, get_vector_store
-from app.infrastructure.llm.bge_local import build_embedding
-from app.repositories.sqlalchemy_repo import SqlAlchemyChunkRepository
+from app.config_store import save_settings
+from app.db import VEC_ENABLED, SessionLocal, get_vector_store
+from app.llm import build_embedding
+from app.store import Chunks
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ def index_status(db) -> dict[str, Any]:
     store = get_vector_store()
     index_dimension = store.index_dimension() if VEC_ENABLED else None
     vector_count = store.count() if VEC_ENABLED else 0
-    chunk_count = SqlAlchemyChunkRepository(db).count()
+    chunk_count = Chunks(db).count()
 
     configured = settings.embedding_dimension
     # 还没有索引表（空库首启）不算不一致：下一次入库会按配置建表
@@ -151,7 +151,7 @@ def run_rebuild() -> None:
         store = get_vector_store()
         store.reset()
 
-        repo = SqlAlchemyChunkRepository(db)
+        repo = Chunks(db)
         total = repo.count()
         _set_job(total=total, message=f"正在重新向量化 {total} 个片段…")
 

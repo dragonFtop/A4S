@@ -14,15 +14,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.config import APP_VERSION, ROOT_DIR, settings
-from app.infrastructure.config_store import (
+from app.config_store import (
     ConfigWriteError,
     ENV_PATH,
     merged_values,
     save_settings,
 )
-from app.infrastructure.db.session import get_db
-from app.infrastructure.llm.bge_local import EMBEDDING_PROVIDERS, build_embedding_for
-from app.infrastructure.llm.openai_compat import LLM_PRESETS, OpenAICompatibleLLM
+from app.db import get_db
+from app.llm import EMBEDDING_PROVIDERS, build_embedding_for
+from app.llm import LLM_PRESETS, OpenAICompatibleLLM
 from app.schemas.settings import ConnectionTestRequest, SettingsUpdate, TestMailRequest
 from app.services import index_service
 from app.services.index_service import RebuildError
@@ -103,7 +103,7 @@ def _mask_database_url(url: str) -> str:
 
 def _scheduler_runtime() -> dict[str, Any]:
     """调度器的运行时信息（下次触发时间）。导入放函数内，避免与 scheduler 互相依赖。"""
-    from app.infrastructure import scheduler
+    from app import scheduler
 
     state = scheduler.state()
     return {"next_run": state["next_run"], "job_registered": state["job_registered"]}
@@ -125,7 +125,7 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)) -> d
     # 定时配置一变，调度器要跟着重装：否则界面上"已开启"，后台其实没任务
     schedule_changed = any(key.startswith("scheduler_") for key in changed)
     if schedule_changed:
-        from app.infrastructure import scheduler
+        from app import scheduler
 
         scheduler.reload()
 
@@ -179,7 +179,7 @@ def test_mail(payload: TestMailRequest) -> dict:
     except ConfigWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    from app.infrastructure.mail.smtp_notifier import build_notifier
+    from app.mailer import build_notifier
 
     result = build_notifier(values).send_test()
     return {"ok": result.ok, "message": result.detail}

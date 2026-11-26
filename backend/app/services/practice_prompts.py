@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from app.domain.models.entities import QuestionType
+from app.models import QuestionType
 
 SYSTEM_PROMPT = """你是一位严谨的命题老师，负责从给定学习材料中出检测题。
 

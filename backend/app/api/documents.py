@@ -9,13 +9,11 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import UNCATEGORIZED_ID, Document, DocumentStatus, TopicKind
-from app.infrastructure.db.session import get_db
-from app.repositories.sqlalchemy_repo import (
-    SqlAlchemyChunkRepository,
-    SqlAlchemyDocumentRepository,
-    SqlAlchemyTopicRepository,
-)
+from app.models import UNCATEGORIZED_ID, Document, DocumentStatus, TopicKind
+from app.db import get_db
+from app.store import Chunks
+from app.store import Documents
+from app.store import Topics
 from app.schemas.common import DocumentOut, TopicBrief
 from app.schemas.documents import (
     BatchIn,
@@ -35,12 +33,12 @@ from app.services.webfetch_service import WebImportError
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
-def _get_doc_repo(db: Session = Depends(get_db)) -> SqlAlchemyDocumentRepository:
-    return SqlAlchemyDocumentRepository(db)
+def _get_doc_repo(db: Session = Depends(get_db)) -> Documents:
+    return Documents(db)
 
 
 def _topic_map(db: Session) -> dict[str, TopicBrief]:
-    repo = SqlAlchemyTopicRepository(db)
+    repo = Topics(db)
     return {
         t.id: TopicBrief(id=t.id, name=t.name, color=t.color)
         for t in repo.list()
@@ -78,7 +76,7 @@ def list_documents(
     keyword: str | None = None,
     db: Session = Depends(get_db),
 ) -> list[DocumentOut]:
-    docs = SqlAlchemyDocumentRepository(db).list(
+    docs = Documents(db).list(
         limit=limit,
         offset=offset,
         topic_ids=_parse_tag_ids(topic_ids) if topic_ids else None,
@@ -92,7 +90,7 @@ def list_documents(
 
 @router.get("/stats", response_model=DocumentStatsOut)
 def document_stats(db: Session = Depends(get_db)) -> DocumentStatsOut:
-    repo = SqlAlchemyDocumentRepository(db)
+    repo = Documents(db)
     total = repo.count()
     ready = repo.count(status=DocumentStatus.READY)
     failed = repo.count(status=DocumentStatus.FAILED)
@@ -104,7 +102,7 @@ def document_stats(db: Session = Depends(get_db)) -> DocumentStatsOut:
         ready=ready,
         processing=pending,
         failed=failed,
-        chunks=SqlAlchemyChunkRepository(db).count(),
+        chunks=Chunks(db).count(),
     )
 
 
@@ -179,8 +177,8 @@ def paste_document(
 @router.post("/batch")
 def batch_update(payload: BatchIn, db: Session = Depends(get_db)) -> dict:
     """批量设主题 / 加标签 / 去标签。"""
-    repo = SqlAlchemyDocumentRepository(db)
-    tag_repo = SqlAlchemyTopicRepository(db)
+    repo = Documents(db)
+    tag_repo = Topics(db)
 
     valid_tags = {t.id for t in tag_repo.list(TopicKind.TAG)}
     touched = 0
@@ -203,10 +201,10 @@ def batch_update(payload: BatchIn, db: Session = Depends(get_db)) -> dict:
 
 @router.get("/{document_id}/chunks", response_model=list[ChunkOut])
 def list_chunks(document_id: str, db: Session = Depends(get_db)) -> list[ChunkOut]:
-    doc = SqlAlchemyDocumentRepository(db).get(document_id)
+    doc = Documents(db).get(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="资料不存在")
-    chunks = SqlAlchemyChunkRepository(db).list_by_document(document_id)
+    chunks = Chunks(db).list_by_document(document_id)
     return [
         ChunkOut(id=c.id, index=c.index, text=c.text, page=c.page)
         for c in chunks
@@ -219,17 +217,17 @@ def reingest_document(
     background: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> DocumentOut:
-    doc = SqlAlchemyDocumentRepository(db).get(document_id)
+    doc = Documents(db).get(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="资料不存在")
-    SqlAlchemyDocumentRepository(db).update_status(document_id, DocumentStatus.PENDING)
+    Documents(db).update_status(document_id, DocumentStatus.PENDING)
     background.add_task(ingest_service.run_ingest, document_id)
-    return _out(SqlAlchemyDocumentRepository(db).get(document_id) or doc, _topic_map(db))
+    return _out(Documents(db).get(document_id) or doc, _topic_map(db))
 
 
 @router.delete("/{document_id}")
 def delete_document(document_id: str, db: Session = Depends(get_db)) -> dict:
-    doc = SqlAlchemyDocumentRepository(db).get(document_id)
+    doc = Documents(db).get(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="资料不存在")
     ingest_service.delete_document(db, document_id)

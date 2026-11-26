@@ -14,8 +14,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import ReviewReport
-from app.infrastructure.db.session import get_db
+from app.models import ReviewReport
+from app.db import get_db
 from app.schemas.review import (
     PushResultOut,
     PushStateOut,
@@ -85,7 +85,7 @@ def _push(db: Session, report: ReviewReport) -> tuple[bool, str]:
         )
         return False, "尚未配置 SMTP"
 
-    from app.infrastructure.mail.smtp_notifier import build_notifier
+    from app.mailer import build_notifier
 
     result = build_notifier().send_report(report)
     review_service.mark_push(db, report, result.ok, result.detail)

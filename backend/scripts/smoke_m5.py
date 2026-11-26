@@ -234,11 +234,11 @@ def main() -> int:
         # 把 B 挪到 20 天前，用来验证时间窗真的在过滤
         from datetime import datetime, timedelta, timezone
 
-        from app.infrastructure.db.session import SessionLocal
-        from app.infrastructure.db.models import DocumentORM
+        from app.db import SessionLocal
+        from app.models import Document
 
         with SessionLocal() as db:
-            row = db.get(DocumentORM, doc_b["id"])
+            row = db.get(Document, doc_b["id"])
             row.created_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=20)
             db.commit()
 
@@ -286,7 +286,7 @@ def main() -> int:
         check("非法窗口被拒", client.post("/api/reviews", json={"window_days": 5}).status_code == 422)
 
         print("\n== 5. 模型可用时走 LLM 分析 ==")
-        import app.infrastructure.llm.openai_compat as compat
+        import app.llm as compat
 
         fake_review = FakeReviewLLM()
         original_build = compat.build_llm
@@ -314,7 +314,7 @@ def main() -> int:
         check("测试发送提示未配置", not_configured["ok"] is False and "SMTP" in not_configured["message"], str(not_configured))
 
         print("\n== 7. 定时调度启停 ==")
-        from app.infrastructure import scheduler
+        from app import scheduler
 
         check("默认不注册任务", scheduler.state()["enabled"] is False)
         client.put("/api/settings", json={"scheduler_enabled": True, "scheduler_cron_day_of_week": "mon",

@@ -1,8 +1,10 @@
-"""数据库会话管理。
+"""数据库：引擎、会话、迁移、向量库单例。
 
-- engine 由 DATABASE_URL 决定，切换 PostgreSQL 只需改配置；
-- get_db 供 FastAPI 依赖注入；
-- init_db 启动时执行 Alembic 迁移到 head（不用 create_all，避免迁移链与真实结构脱节）。
+建表结构在 `models.py`；这里只管"怎么连、怎么初始化"。
+
+- `engine` 由 `DATABASE_URL` 决定；
+- `get_db` 供 FastAPI 依赖注入，请求结束自动关；
+- `init_db` 启动时执行 Alembic 迁移到 head（不用 create_all，避免迁移链与真实结构脱节）。
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import BACKEND_DIR, DATA_DIR, settings
-from app.infrastructure.db.base import Base
+from app.models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +44,6 @@ def init_db() -> None:
     from alembic import command
     from alembic.config import Config
 
-    from app.infrastructure.db import models  # noqa: F401  注册元数据
-
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
     cfg.set_main_option("sqlalchemy.url", url)
@@ -54,18 +54,24 @@ def init_db() -> None:
         Base.metadata.create_all(bind=engine)
 
 
+def ping_db() -> bool:
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:  # noqa: BLE001 - 探活失败就是失败，不区分原因
+        return False
+
+
 # ---- 向量库（sqlite-vec）----
 # 在 engine 建好后立刻给连接加载扩展，之后所有连接都能用 vec0 语法。
-from app.infrastructure.vectorstore.sqlite_vec_store import (  # noqa: E402
-    SqliteVecStore,
-    attach_sqlite_vec,
-)
+from app.vectorstore import SqliteVecStore, attach_sqlite_vec  # noqa: E402
 
 VEC_ENABLED = attach_sqlite_vec(engine)
 
 # ---- 笔记全文检索（FTS5）----
-# 虚表只能用 DDL 建，迁移脚本无法还原三张以上关联，所以启动时确保存在。
-from app.infrastructure.db import fts  # noqa: E402
+# 虚表只能用 DDL 建，迁移脚本无法还原，所以启动时确保存在。
+from app import fts  # noqa: E402
 
 FTS_ENABLED = fts.ensure_schema(engine)
 
@@ -87,12 +93,3 @@ def get_vector_store() -> SqliteVecStore:
         if VEC_ENABLED:
             _vector_store.ensure_schema()
     return _vector_store
-
-
-def ping_db() -> bool:
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return True
-    except Exception:
-        return False

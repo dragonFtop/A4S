@@ -29,17 +29,17 @@ if TEST_DB.exists():
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.domain.models.entities import Question, QuestionType, SourceRef  # noqa: E402
-from app.infrastructure.db.models import (  # noqa: E402
-    ChunkORM,
-    DocumentORM,
-    PracticeSessionORM,
-    TopicORM,
-    WrongAnswerORM,
+from app.models import Question, QuestionType, SourceRef  # noqa: E402
+from app.models import (  # noqa: E402
+    Chunk,
+    Document,
+    PracticeSession,
+    Topic,
+    WrongAnswer,
 )
-from app.infrastructure.db.session import SessionLocal  # noqa: E402
+from app.db import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
-from app.repositories._converters import question_to_dict  # noqa: E402
+from app.models import question_to_dict  # noqa: E402
 from app.services import plan_agent, plan_tools, practice_service  # noqa: E402
 
 PASSED: list[str] = []
@@ -166,9 +166,9 @@ def seed() -> None:
     db = SessionLocal()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     try:
-        db.add(TopicORM(id="t-plan", name="密码学", kind="topic", color="#534AB7"))
+        db.add(Topic(id="t-plan", name="密码学", kind="topic", color="#534AB7"))
         db.add(
-            DocumentORM(
+            Document(
                 id="d-plan",
                 name="分组密码笔记",
                 ext="md",
@@ -179,10 +179,10 @@ def seed() -> None:
             )
         )
         db.add(
-            ChunkORM(
+            Chunk(
                 id="chunk-plan-1",
                 document_id="d-plan",
-                chunk_index=0,
+                index=0,
                 text=MATERIAL,
                 topic_id="t-plan",
             )
@@ -203,7 +203,7 @@ def seed() -> None:
             topic_id="t-plan",
         )
         db.add(
-            PracticeSessionORM(
+            PracticeSession(
                 id="s-plan-1",
                 status="submitted",
                 score=66.7,
@@ -215,7 +215,7 @@ def seed() -> None:
             )
         )
         db.add(
-            WrongAnswerORM(
+            WrongAnswer(
                 id="q-plan-1",
                 question_id="q-plan-1",
                 document_id="d-plan",

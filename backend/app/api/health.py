@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.config import APP_VERSION, settings
-from app.infrastructure.db.session import ping_db
+from app.db import ping_db
 from app.schemas.common import HealthResponse
 
 router = APIRouter(tags=["system"])

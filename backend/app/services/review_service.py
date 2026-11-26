@@ -20,21 +20,15 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import (
+from app.models import (
     UNCATEGORIZED_ID,
     UNCATEGORIZED_NAME,
     ReviewReport,
 )
-from app.repositories.review_repo import (
-    SqlAlchemyReviewRepository,
-    collect_window,
-    to_iso,
-    utcnow_naive,
-)
-from app.repositories.sqlalchemy_repo import (
-    SqlAlchemyTopicRepository,
-    SqlAlchemyWrongAnswerRepository,
-)
+from app import reviews
+from app.reviews import collect_window, to_iso, utcnow_naive
+from app.store import Topics
+from app.store import WrongAnswers
 from app.services import review_prompts
 from app.services.practice_service import wrong_summary
 
@@ -77,8 +71,8 @@ def _fmt_day(value: datetime) -> str:
 
 def _top_wrong(db: Session, window_days: int, limit: int = 5) -> list[dict]:
     """窗口内错得最多的题，带主题名，供报告与邮件共用。"""
-    items = SqlAlchemyWrongAnswerRepository(db).list(days=window_days, sort="count", limit=limit)
-    topics = {topic.id: topic for topic in SqlAlchemyTopicRepository(db).list()}
+    items = WrongAnswers(db).list(days=window_days, sort="count", limit=limit)
+    topics = {topic.id: topic for topic in Topics(db).list()}
     return [
         {
             "question_id": item.question.id,
@@ -187,7 +181,7 @@ async def _analyze(metrics: dict, wrong: dict, top_wrong: list[dict]) -> tuple[d
         return _rule_based_analysis(metrics, wrong, top_wrong), "rule"
 
     try:
-        from app.infrastructure.llm.openai_compat import build_llm
+        from app.llm import build_llm
 
         llm = build_llm()
         raw = await llm.chat(
@@ -426,16 +420,16 @@ async def generate_report(
         markdown=markdown,
         metrics=metrics,
     )
-    SqlAlchemyReviewRepository(db).save(report)
+    reviews.save(db, report)
     return report
 
 
 def list_reports(db: Session, limit: int = 50) -> list[ReviewReport]:
-    return SqlAlchemyReviewRepository(db).list(limit=limit)
+    return reviews.list_reports(db, limit)
 
 
 def get_report(db: Session, report_id: str) -> ReviewReport:
-    report = SqlAlchemyReviewRepository(db).get(report_id)
+    report = reviews.get(db, report_id)
     if report is None:
         raise ReviewNotFound(report_id)
     return report
@@ -443,7 +437,7 @@ def get_report(db: Session, report_id: str) -> ReviewReport:
 
 def remove_report(db: Session, report_id: str) -> None:
     get_report(db, report_id)
-    SqlAlchemyReviewRepository(db).delete(report_id)
+    reviews.delete(db, report_id)
 
 
 def mark_push(db: Session, report: ReviewReport, ok: bool, detail: str) -> ReviewReport:
@@ -451,7 +445,6 @@ def mark_push(db: Session, report: ReviewReport, ok: bool, detail: str) -> Revie
 
     失败也要落库：界面要能显示「上次推送失败 + 原因」，报告本身不能丢。
     """
-    repo = SqlAlchemyReviewRepository(db)
     metrics = dict(report.metrics or {})
     metrics["push"] = {
         "status": "sent" if ok else "failed",
@@ -459,13 +452,13 @@ def mark_push(db: Session, report: ReviewReport, ok: bool, detail: str) -> Revie
         "at": to_iso(utcnow_naive()),
     }
     report.metrics = metrics
-    repo.save(report)
+    reviews.save(db, report)
     return report
 
 
 def push_state(db: Session) -> dict[str, Any]:
     """最近一次推送的状态，给回顾页与概览做提示。"""
-    latest = SqlAlchemyReviewRepository(db).latest()
+    latest = reviews.latest(db)
     if latest is None:
         return {"status": "none", "detail": "", "at": None, "report_id": None}
     push = (latest.metrics or {}).get("push", {})

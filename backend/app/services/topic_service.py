@@ -14,10 +14,10 @@ import uuid
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import UNCATEGORIZED_ID, Topic, TopicKind
-from app.infrastructure.db.seed import DEFAULT_TAG_COLOR, apply_topic_packs, topic_seeded
-from app.infrastructure.db.models import DocumentTagORM, NoteTagORM
-from app.repositories.sqlalchemy_repo import SqlAlchemyTopicRepository
+from app.models import UNCATEGORIZED_ID, Topic, TopicKind
+from app.topic_seed import DEFAULT_TAG_COLOR, apply_topic_packs, topic_seeded
+from app.models import DocumentTag, NoteTag
+from app.store import Topics
 
 PALETTE = (
     "#7F77DD",
@@ -40,7 +40,7 @@ class TopicProtected(ValueError):
 
 
 def _pick_color(db: Session, kind: TopicKind) -> str:
-    existing = SqlAlchemyTopicRepository(db).list(kind)
+    existing = Topics(db).list(kind)
     return PALETTE[len(existing) % len(PALETTE)]
 
 
@@ -50,7 +50,7 @@ def create_topic(
     cleaned = name.strip()
     if not cleaned:
         raise ValueError("名称不能为空")
-    repo = SqlAlchemyTopicRepository(db)
+    repo = Topics(db)
     if repo.get_by_name(cleaned, kind) is not None:
         label = "主题" if kind is TopicKind.TOPIC else "标签"
         raise TopicConflict(f"{label}「{cleaned}」已存在")
@@ -74,7 +74,7 @@ def update_topic(
     color: str | None = None,
     sort_order: int | None = None,
 ) -> Topic:
-    repo = SqlAlchemyTopicRepository(db)
+    repo = Topics(db)
     topic = repo.get(topic_id)
     if topic is None:
         raise LookupError("主题不存在")
@@ -104,7 +104,7 @@ def delete_topic(db: Session, topic_id: str) -> dict:
     if topic_id == UNCATEGORIZED_ID:
         raise TopicProtected("「未分类」不能删除")
 
-    repo = SqlAlchemyTopicRepository(db)
+    repo = Topics(db)
     topic = repo.get(topic_id)
     if topic is None:
         raise LookupError("主题不存在")
@@ -112,17 +112,17 @@ def delete_topic(db: Session, topic_id: str) -> dict:
     moved = 0
     if topic.kind is TopicKind.TOPIC:
         # 逐个迁移：文档归属、chunk 分区键、向量分区一次改完（见 move_document_topic）
-        from app.repositories.sqlalchemy_repo import SqlAlchemyDocumentRepository
+        from app.store import Documents
         from app.services.ingest_service import move_document_topic
 
-        document_ids = SqlAlchemyDocumentRepository(db).list_ids_by_topic(topic_id)
+        document_ids = Documents(db).list_ids_by_topic(topic_id)
         for document_id in document_ids:
             move_document_topic(db, document_id, UNCATEGORIZED_ID)
         repo.reassign_notes(topic_id, UNCATEGORIZED_ID)
         moved = len(document_ids)
     else:
-        db.execute(delete(DocumentTagORM).where(DocumentTagORM.tag_id == topic_id))
-        db.execute(delete(NoteTagORM).where(NoteTagORM.tag_id == topic_id))
+        db.execute(delete(DocumentTag).where(DocumentTag.tag_id == topic_id))
+        db.execute(delete(NoteTag).where(NoteTag.tag_id == topic_id))
         db.commit()
 
     repo.delete(topic_id)

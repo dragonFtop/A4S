@@ -30,7 +30,7 @@ if TEST_DB.exists():
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.domain.models.entities import Question, QuestionType  # noqa: E402
+from app.models import Question, QuestionType  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services import grading  # noqa: E402
 

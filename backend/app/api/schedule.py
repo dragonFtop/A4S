@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from app.infrastructure import scheduler
+from app import scheduler
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 

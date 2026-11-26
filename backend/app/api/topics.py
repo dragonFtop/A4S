@@ -5,10 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import UNCATEGORIZED_ID, Topic, TopicKind
-from app.infrastructure.db.seed import load_topic_packs, topic_seeded
-from app.infrastructure.db.session import get_db
-from app.repositories.sqlalchemy_repo import SqlAlchemyTopicRepository
+from app.models import UNCATEGORIZED_ID, Topic, TopicKind
+from app.topic_seed import load_topic_packs, topic_seeded
+from app.db import get_db
+from app.store import Topics
 from app.schemas.topics import (
     ApplyPacksIn,
     ApplyPacksOut,
@@ -39,7 +39,7 @@ def _out(topic: Topic) -> TopicOut:
 
 @router.get("", response_model=TopicListOut)
 def list_topics(db: Session = Depends(get_db)) -> TopicListOut:
-    repo = SqlAlchemyTopicRepository(db)
+    repo = Topics(db)
     return TopicListOut(
         topics=[_out(t) for t in repo.list(TopicKind.TOPIC)],
         tags=[_out(t) for t in repo.list(TopicKind.TAG)],

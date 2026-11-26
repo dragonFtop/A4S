@@ -137,10 +137,22 @@ npm run dev
 backend/app/
 ├── api/                 # 13 个路由模块：收请求、发响应，不写业务
 ├── schemas/             # 出入参（Pydantic），前后端的契约
-├── domain/              # 业务对象（dataclass + 枚举），不依赖框架
 ├── services/            # 业务规则：入库/索引/笔记/问答/练习/判分/回顾/计划
-├── repositories/        # 数据存取（一张表一个文件），SQL 只在这里
-├── infrastructure/      # 外部能力：db / llm / parsers / generators / mail / scheduler
+├── models.py            # 全部表结构 + 枚举 + JSON 快照（一张表一个类）
+├── store.py             # 数据读写，按实体分组（Topics / Documents / Chunks / Notes …）
+├── db.py                # 引擎、会话、迁移、向量库单例
+├── llm.py               # 大模型与 Embedding：端口 + 实现 + 工厂
+├── parsers.py           # PDF / DOCX / Markdown / 纯文本
+├── practice_generate.py # 出题：材料上下文 → 调模型 → 解析成题目
+├── splitter.py          # 文本切分
+├── vectorstore.py       # sqlite-vec 向量表
+├── fts.py               # 笔记全文检索（FTS5 + 中文按字切分）
+├── stats.py             # 概览统计（只读投影）
+├── reviews.py           # 回顾报告：时间窗聚合 + 存取
+├── config_store.py      # 设置项落 .env
+├── topic_seed.py        # 内置「未分类」与预置主题包
+├── mailer.py            # SMTP 推送
+├── scheduler.py         # 定时回顾
 └── main.py              # 启动：迁移 → 种子 → 挂调度
 frontend/src/
 ├── api/client.ts        # 全部接口封装
@@ -149,7 +161,11 @@ frontend/src/
 └── styles/              # tokens.css（令牌）+ pages.css（页面）
 ```
 
-> 每个目录具体管什么、一个请求怎么流过去，见 **[docs/CODE_MAP.md](./docs/CODE_MAP.md)**。
+> 这张门面按"改一个功能要开几个文件"来组织：表结构全在 `models.py`，同一实体的
+> 读写全在 `store.py` 的一个类里，业务规则在 `services/` 对应模块——加一个字段只改
+> `models.py` 一处，不再有 ORM 与 dataclass 之间的来回搬运。
+
+> 每个模块具体管什么、一个请求怎么流过去，见 **[docs/CODE_MAP.md](./docs/CODE_MAP.md)**。
 
 ## 可替换能力
 
@@ -160,7 +176,7 @@ frontend/src/
 | 对话模型 | `build_llm()` | `deepseek` / `qwen` / `openai` / `moonshot`（全走 OpenAI 兼容协议） |
 | 向量化 | `build_embedding()` | 本地 BGE（`local`/`bge`）/ 云端 API（`cloud`/`openai`） |
 | 文档解析 | `resolve_parser(ext)` | PDF / DOCX / Markdown / 纯文本 |
-| 出题 | `LLMTypedGenerator(type)` | 单选 / 多选 / 判断 / 简答 |
+| 出题 | `generate_questions(type, …)` | 单选 / 多选 / 判断 / 简答 |
 | 邮件推送 | `build_notifier()` | SMTP |
 
 `/api/health` 的 `extensions` 字段会直接回显各扩展点的已注册键。
@@ -191,7 +207,7 @@ cd backend
 .venv/Scripts/alembic upgrade head
 ```
 
-切换 PostgreSQL 只需改 `.env` 的 `DATABASE_URL`，业务代码不动（仓储层已做方言隔离）。
+数据全在一个 SQLite 文件（`backend/data/app.db`），备份就是复制这个文件。
 
 ## 常见问题
 

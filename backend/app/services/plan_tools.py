@@ -17,18 +17,16 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from app.domain.models.entities import (
+from app.models import (
     UNCATEGORIZED_ID,
     UNCATEGORIZED_NAME,
     QuestionType,
     StudyPlan,
 )
-from app.repositories.sqlalchemy_repo import (
-    SqlAlchemyStudyPlanRepository,
-    SqlAlchemyTopicRepository,
-    SqlAlchemyWrongAnswerRepository,
-)
-from app.repositories.stats_repo import StatsRepository
+from app.store import Plans
+from app.store import Topics
+from app.store import WrongAnswers
+from app import stats
 from app.services import practice_service
 
 # 工具返回值上限。单个错题原文、30 道题的快照都可能超过它，
@@ -103,8 +101,8 @@ def _fit(data: dict) -> dict:
 
 
 def get_progress(db) -> dict:
-    """概览统计。数字全部原样取自 StatsRepository，工具不做加减乘除。"""
-    summary = StatsRepository(db).summary()
+    """概览统计。数字全部原样取自 stats.summary，工具不做加减乘除。"""
+    summary = stats.summary(db)
     documents = summary["documents"]
     practice = summary["practice"]
     wrong = summary["wrong"]
@@ -146,9 +144,9 @@ def list_weak_points(db, limit: Any = 5) -> dict:
     if not buckets:
         return {"items": [], "note": "错题本还是空的，没有可分析的薄弱点"}
 
-    topics = {topic.id: topic for topic in SqlAlchemyTopicRepository(db).list()}
+    topics = {topic.id: topic for topic in Topics(db).list()}
     samples: dict[str, list[dict]] = {}
-    for item in SqlAlchemyWrongAnswerRepository(db).list(sort="count", limit=300):
+    for item in WrongAnswers(db).list(sort="count", limit=300):
         key = item.topic_id or UNCATEGORIZED_ID
         bucket = samples.setdefault(key, [])
         if len(bucket) < 2:
@@ -181,11 +179,11 @@ def list_weak_points(db, limit: Any = 5) -> dict:
 def list_wrong_answers(db, limit: Any = 10) -> dict:
     """待复习错题：题干、你的答案、正确答案、错误次数。"""
     count = _as_int(limit, 10, 1, 20)
-    rows = SqlAlchemyWrongAnswerRepository(db).list(sort="count", limit=count)
+    rows = WrongAnswers(db).list(sort="count", limit=count)
     if not rows:
         return {"items": [], "note": "错题本还是空的"}
 
-    topics = {topic.id: topic.name for topic in SqlAlchemyTopicRepository(db).list()}
+    topics = {topic.id: topic.name for topic in Topics(db).list()}
     items = []
     for row in rows:
         question = row.question
@@ -280,7 +278,7 @@ def save_plan(db, *, markdown: str, goal: str = "", meta: dict | None = None) ->
         goal=(goal or "")[:200],
         meta=meta or {},
     )
-    saved = SqlAlchemyStudyPlanRepository(db).save(plan)
+    saved = Plans(db).save(plan)
     return {"plan_id": saved.id, "chars": len(text)}
 
 

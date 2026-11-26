@@ -14,10 +14,10 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import UNCATEGORIZED_ID, UNCATEGORIZED_NAME, TopicKind
-from app.infrastructure.db.models import TopicORM
+from app.models import UNCATEGORIZED_ID, UNCATEGORIZED_NAME, TopicKind
+from app.models import Topic
 
-SEED_PATH = Path(__file__).resolve().parents[2] / "seed" / "topic_packs.json"
+SEED_PATH = Path(__file__).resolve().parents[0] / "seed" / "topic_packs.json"
 
 DEFAULT_TAG_COLOR = "#888780"
 
@@ -31,11 +31,11 @@ def load_topic_packs() -> dict:
 
 def ensure_builtin(db: Session) -> None:
     """确保「未分类」主题存在。documents.topic_id 的默认值指向它。"""
-    exists = db.get(TopicORM, UNCATEGORIZED_ID)
+    exists = db.get(Topic, UNCATEGORIZED_ID)
     if exists is not None:
         return
     db.add(
-        TopicORM(
+        Topic(
             id=UNCATEGORIZED_ID,
             name=UNCATEGORIZED_NAME,
             kind=TopicKind.TOPIC.value,
@@ -47,7 +47,7 @@ def ensure_builtin(db: Session) -> None:
 
 
 def _existing_names(db: Session, kind: str) -> set[str]:
-    rows = db.execute(select(TopicORM.name).where(TopicORM.kind == kind)).scalars()
+    rows = db.execute(select(Topic.name).where(Topic.kind == kind)).scalars()
     return set(rows)
 
 
@@ -75,7 +75,7 @@ def apply_topic_packs(db: Session, pack_ids: list[str]) -> dict:
                 continue
             order_counter += 1
             db.add(
-                TopicORM(
+                Topic(
                     id=str(uuid.uuid4()),
                     name=item["name"],
                     kind=TopicKind.TOPIC.value,
@@ -91,7 +91,7 @@ def apply_topic_packs(db: Session, pack_ids: list[str]) -> dict:
         if item["name"] in existing_tags:
             continue
         db.add(
-            TopicORM(
+            Topic(
                 id=str(uuid.uuid4()),
                 name=item["name"],
                 kind=TopicKind.TAG.value,
@@ -113,9 +113,9 @@ def apply_topic_packs(db: Session, pack_ids: list[str]) -> dict:
 def topic_seeded(db: Session) -> bool:
     """是否已有除「未分类」之外的主题——用于判断要不要展示引导层。"""
     row = db.execute(
-        select(TopicORM.id)
-        .where(TopicORM.kind == TopicKind.TOPIC.value)
-        .where(TopicORM.id != UNCATEGORIZED_ID)
+        select(Topic.id)
+        .where(Topic.kind == TopicKind.TOPIC.value)
+        .where(Topic.id != UNCATEGORIZED_ID)
         .limit(1)
     ).first()
     return row is not None

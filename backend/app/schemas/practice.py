@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.domain.models.entities import QuestionType
+from app.models import QuestionType
 from app.schemas.common import UtcDateTime
 
 

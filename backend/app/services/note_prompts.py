@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from app.domain.models.entities import NoteTemplate
+from app.models import NoteTemplate
 
 AI_MARK = "<!--ai-->"
 

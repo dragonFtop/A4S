@@ -19,7 +19,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
 
-from app.domain.models.entities import ReviewReport
+from app.models import ReviewReport
 
 logger = logging.getLogger(__name__)
 

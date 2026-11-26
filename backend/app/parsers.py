@@ -1,4 +1,7 @@
-"""内置文档解析器：PDF / DOCX / Markdown / 纯文本。
+"""文档解析：PDF / DOCX / Markdown / 纯文本。
+
+`DocumentParser` 保留抽象，因为这里有四个实现，`supports(ext)` 的多态是有用的：
+`PARSERS` 按扩展名挑一个，加新格式只需要再写一个类。
 
 统一约定：
 - 返回 ParsedDocument.text 为全文（用于切分与检索）；
@@ -9,11 +12,30 @@
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.infrastructure.parsers.base import DocumentParser, ParsedDocument
-
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class ParsedDocument:
+    text: str
+    pages: list[tuple[int, str]] = field(default_factory=list)
+    meta: dict = field(default_factory=dict)
+
+
+class DocumentParser(ABC):
+    name: str = "base"
+    extensions: tuple[str, ...] = ()
+
+    def supports(self, ext: str) -> bool:
+        return ext.lower().lstrip(".") in self.extensions
+
+    @abstractmethod
+    def parse(self, path: Path) -> ParsedDocument:
+        """把文件解析为纯文本。"""
 
 # 中文 TXT 常见 GBK/GB18030，按顺序探测，最后兜底忽略错误
 _ENCODINGS = ("utf-8-sig", "utf-8", "gb18030")

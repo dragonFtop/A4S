@@ -12,9 +12,9 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import Note, NoteSourceType, NoteStatus, NoteTemplate
-from app.infrastructure.db.session import get_db
-from app.repositories.sqlalchemy_repo import SqlAlchemyTopicRepository
+from app.models import Note, NoteSourceType, NoteStatus, NoteTemplate
+from app.db import get_db
+from app.store import Topics
 from app.schemas.common import TopicBrief
 from app.schemas.notes import (
     DraftIn,
@@ -40,7 +40,7 @@ _MARK = re.compile(r"\[\[chunk:([A-Za-z0-9\-]+)\]\]")
 def _topics(db: Session) -> dict[str, TopicBrief]:
     return {
         t.id: TopicBrief(id=t.id, name=t.name, color=t.color)
-        for t in SqlAlchemyTopicRepository(db).list()
+        for t in Topics(db).list()
     }
 
 
@@ -374,15 +374,13 @@ def export_note(note_id: str, db: Session = Depends(get_db)) -> Response:
 @router.get("/{note_id}/sources/{chunk_id}", response_model=NoteSourceOut)
 def source_detail(note_id: str, chunk_id: str, db: Session = Depends(get_db)) -> NoteSourceOut:
     """角标二次点击时取完整原文（列表里的 snippet 只有 240 字）。"""
-    from app.repositories.sqlalchemy_repo import (
-        SqlAlchemyChunkRepository,
-        SqlAlchemyDocumentRepository,
-    )
+    from app.store import Chunks
+    from app.store import Documents
 
-    chunk = SqlAlchemyChunkRepository(db).get(chunk_id)
+    chunk = Chunks(db).get(chunk_id)
     if chunk is None:
         raise HTTPException(status_code=404, detail="来源片段已随资料删除")
-    doc = SqlAlchemyDocumentRepository(db).get(chunk.document_id)
+    doc = Documents(db).get(chunk.document_id)
     note = note_service.get(db, note_id)
     index = next(
         (i for i, s in enumerate(note.sources, start=1) if s.chunk_id == chunk_id), 1

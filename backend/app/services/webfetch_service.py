@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-from app.infrastructure.webfetch import PageContent, WebFetchError, fetch_page
+from app.webfetch import PageContent, WebFetchError, fetch_page
 
 MAX_URL_LEN = 2048
 

@@ -40,12 +40,10 @@ import uuid
 from collections.abc import AsyncIterator
 
 from app.config import settings
-from app.infrastructure.db.session import SessionLocal, get_vector_store
-from app.infrastructure.llm.openai_compat import build_llm
-from app.repositories.sqlalchemy_repo import (
-    SqlAlchemyChunkRepository,
-    SqlAlchemyDocumentRepository,
-)
+from app.db import SessionLocal, get_vector_store
+from app.llm import build_llm
+from app.store import Chunks
+from app.store import Documents
 from app.services import chat_prompts
 
 logger = logging.getLogger(__name__)
@@ -83,8 +81,8 @@ def retrieve(
     best 是本次召回里最像的一条的相似度，用来判断该不该提醒模型"别硬答"。
     """
     store = get_vector_store()
-    chunk_repo = SqlAlchemyChunkRepository(db)
-    doc_repo = SqlAlchemyDocumentRepository(db)
+    chunk_repo = Chunks(db)
+    doc_repo = Documents(db)
 
     allowed: set[str] | None = None
     if document_ids or tag_ids:
@@ -146,7 +144,7 @@ def retrieve(
 
 
 def _embed_query(question: str) -> list[float]:
-    from app.infrastructure.llm.bge_local import build_embedding
+    from app.llm import build_embedding
 
     return build_embedding().embed_one(question)
 
@@ -186,7 +184,7 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
 
         history = _trim_history(payload.get("history") or [])
 
-        chunk_repo = SqlAlchemyChunkRepository(db)
+        chunk_repo = Chunks(db)
         if chunk_repo.count() == 0:
             # 三种"没找到"里最干净的一种：库里确实一条片段都没有。
             # 仍然作答，但声明必须写清楚"一句资料都没用上"，否则用户会以为回答有出处。

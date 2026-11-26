@@ -367,12 +367,12 @@ def main() -> int:
             str({q["document_id"] for q in session5["questions"]}),
         )
 
-        from app.infrastructure.db.session import SessionLocal
-        from app.infrastructure.db.models import DocumentORM
+        from app.db import SessionLocal
+        from app.models import Document
 
         db = SessionLocal()
         try:
-            row = db.get(DocumentORM, doc_crypto["id"])
+            row = db.get(Document, doc_crypto["id"])
             row.created_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
             db.commit()
         finally:
@@ -398,7 +398,7 @@ def main() -> int:
 
         db = SessionLocal()
         try:
-            row = db.get(DocumentORM, doc_crypto["id"])
+            row = db.get(Document, doc_crypto["id"])
             row.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
             db.commit()
         finally:
@@ -437,12 +437,12 @@ def main() -> int:
         check("删除后 404", client.get(f"/api/practice/sessions/{target}").status_code == 404)
 
         print("\n== 9. 解析工具单测 ==")
-        from app.infrastructure.generators.base import GenerationChunk, GenerationContext
-        from app.infrastructure.generators.parsing import (
+        from app.practice_generate import GenerationChunk, GenerationContext
+        from app.practice_generate import (
             normalize_question,
             parse_json_items,
         )
-        from app.domain.models.entities import QuestionType
+        from app.models import QuestionType
 
         context = GenerationContext(
             chunks=[

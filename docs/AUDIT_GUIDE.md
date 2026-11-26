@@ -44,9 +44,10 @@
 
 只读 `BACKEND_CODE_GUIDE.md` 的 §1 启动链路、§13 仓储层、§19 API 层、§21 横切关注点，然后抽查：
 
-- `api/router.py` — 12 个路由模块的边界
-- `domain/models/entities.py`（261 行）— 纯 dataclass，无 ORM 污染
-- `repositories/sqlalchemy_repo.py` — 20 行索引，真正的实现在同目录按实体拆成 6 个文件
+- `api/router.py` — 13 个路由模块的边界
+- `models.py`（599 行）— 全部表结构 + 枚举 + JSON 快照，一张表一个类，没有第二份副本
+- `store.py`（580 行）— 7 个读写类，类名就是实体名，方法就是那条 SQL
+- `db.py`（110 行）— 引擎、会话、迁移、向量库单例
 
 ### 第三轮：M4 + M5 重点（约 80 分钟）
 
@@ -55,14 +56,14 @@
 | 顺序 | 文件 | 行数 | 审什么 |
 |---|---|---|---|
 | 1 | `services/grading.py` | 132 | 纯函数；`answered` 与 `is_correct` 分离 |
-| 2 | `generators/parsing.py` | 252 | 抠 JSON、答案归一、来源编号白名单 |
-| 3 | `services/review_prompts.py` | 130 | 输出 JSON 的容错解析 |
+| 2 | `practice_generate.py` | 359 | 抠 JSON、答案归一、来源编号白名单、出题主流程 |
+| 3 | `services/review_prompts.py` | 151 | 输出 JSON 的容错解析 |
 | 4 | `services/practice_service.py` | 751 | 取材轮转、合并顺序、错误率分母 |
-| 5 | `repositories/review_repo.py` | 268 | **时间窗聚合口径**（M5 新增） |
-| 6 | `services/review_service.py` | 480 | **数字归程序、文字归模型**（M5 新增） |
-| 7 | `infrastructure/scheduler.py` | 150 | 线程内 `asyncio.run`、热重载、不补发 |
-| 8 | `infrastructure/mail/smtp_notifier.py` | 250 | 失败返回而非抛异常、内联样式 HTML |
-| 9 | `repositories/stats_repo.py` | 262 | 概览投影（**修过 finished→submitted**） |
+| 5 | `reviews.py` | 263 | **时间窗聚合口径**（M5 新增） |
+| 6 | `services/review_service.py` | 470 | **数字归程序、文字归模型**（M5 新增） |
+| 7 | `scheduler.py` | 147 | 线程内 `asyncio.run`、热重载、不补发 |
+| 8 | `mailer.py` | 267 | 失败返回而非抛异常、内联样式 HTML |
+| 9 | `stats.py` | 263 | 概览投影（**修过 finished→submitted**） |
 | 10 | `frontend/src/pages/Review.tsx` | 480 | 三态：生成中 / 列表 / 详情 |
 | 11 | `frontend/src/pages/Settings.tsx` | 960 | SMTP 测试发送、调度热生效 |
 
@@ -86,14 +87,22 @@
 ## 4. 代码地图
 
 ```
-backend/app/                    9 738 行
-├── api/          12 个路由模块（1 469 → 2 000 行，新增 review 完整实现）
-├── services/     入库/索引/笔记/问答/主题/练习/判分/回顾（2 558 → 3 200 行）
-├── repositories/ 按实体拆分：topics/documents/chunks/notes/practice/wrong_answers
-│                 + stats_repo（262）+ review_repo（268）+ 20 行索引
-├── infrastructure/ db / llm / parsers / generators / mail / scheduler（2 444 行）
-├── domain/       entities.py（261）
-└── schemas/      出入参（615 行，9 个文件）
+backend/app/                    10 492 行 / 59 个文件
+├── api/          13 个路由模块（1 757 行）
+├── services/     入库/索引/笔记/问答/主题/练习/判分/回顾/计划（4 008 行）
+├── schemas/      出入参（666 行，10 个文件）
+├── models.py     表结构 + 枚举 + JSON 快照（599）
+├── store.py      按实体分组的读写（580）
+├── db.py         引擎 / 会话 / 迁移 / 向量库单例（110）
+├── stats.py      概览统计（263）
+├── reviews.py    回顾聚合与存取（263）
+├── llm.py        对话与 Embedding：端口 + 实现 + 工厂（280）
+├── practice_generate.py  出题：上下文 → 模型 → 解析（359）
+├── parsers.py    四种格式解析（148）
+├── splitter.py   文本切分（141）
+├── vectorstore.py sqlite-vec（224）
+├── fts.py        笔记全文检索（167）
+├── config_store.py / topic_seed.py / mailer.py / scheduler.py / webfetch.py
 
 frontend/src/
 ├── pages/        概览 / 知识库 / 笔记 / 编辑器 / 问答 / 练习 / 错题本 / 回顾 / 设置
@@ -104,12 +113,12 @@ frontend/src/
 **本轮新增文件**（M5）：
 
 ```
-backend/app/repositories/review_repo.py
+backend/app/reviews.py
 backend/app/services/review_service.py
 backend/app/services/review_prompts.py
 backend/app/schemas/review.py
-backend/app/infrastructure/scheduler.py
-backend/app/infrastructure/mail/smtp_notifier.py
+backend/app/scheduler.py
+backend/app/mailer.py
 backend/scripts/smoke_m5.py
 backend/scripts/smoke_m6.py
 ```

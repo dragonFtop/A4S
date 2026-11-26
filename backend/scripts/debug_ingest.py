@@ -14,11 +14,11 @@ os.environ["DATABASE_URL"] = "sqlite:///./data/debug_ingest.db"
 if TEST_DB.exists():
     TEST_DB.unlink()
 
-from app.infrastructure.db.session import SessionLocal, get_vector_store  # noqa: E402
-from app.infrastructure.db.seed import ensure_builtin  # noqa: E402
-from app.infrastructure.db.session import init_db  # noqa: E402
+from app.db import SessionLocal, get_vector_store  # noqa: E402
+from app.topic_seed import ensure_builtin  # noqa: E402
+from app.db import init_db  # noqa: E402
 from app.services import ingest_service  # noqa: E402
-from app.repositories.sqlalchemy_repo import SqlAlchemyDocumentRepository  # noqa: E402
+from app.store import Documents  # noqa: E402
 
 init_db()
 db = SessionLocal()
@@ -36,7 +36,7 @@ ingest_service.run_ingest(doc.id)
 print(f"处理耗时 {time.time() - start:.1f}s")
 
 db2 = SessionLocal()
-fresh = SqlAlchemyDocumentRepository(db2).get(doc.id)
+fresh = Documents(db2).get(doc.id)
 print("状态:", fresh.status.value if fresh else None)
 print("片段数:", fresh.chunk_count if fresh else None)
 print("错误:", fresh.error if fresh else None)

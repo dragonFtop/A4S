@@ -33,9 +33,11 @@
 | LLM       | OpenAI 兼容协议（DeepSeek / 通义 / OpenAI / Moonshot 预设） |
 | Embedding | 本地 BGE-small-zh-v1.5（默认），或云端 OpenAI 兼容端点          |
 | 异步        | 资料处理 / 笔记起草 / 索引重建用 `BackgroundTasks`，任务状态在进程内字典  |
-| 扩展机制      | 六个注册表（Registry），业务代码只依赖端口和键名                      |
+| 扩展机制      | 每类能力一个工厂函数（`build_llm` / `build_embedding` / `resolve_parser`），配置决定走哪个实现 |
 
-**一句话架构**：API 层只做校验与 DTO 转换，业务规则集中在 `services/`，数据访问走 `repositories/`，外部能力（LLM、Embedding、解析、向量库、邮件、出题）藏在 `infrastructure/` 并通过 `app/registry.py` 注册；领域dataclass 与 ORM、DTO 三者刻意分开。
+**一句话架构**：API 层只做校验与 DTO 转换，业务规则集中在 `services/`，数据读写走 `store.py`（一个实体一个类），表结构与 JSON 快照全在 `models.py`，其余能力（LLM、解析、切分、向量库、全文检索、统计、回顾、出题）各自一个顶层模块。
+
+> v0.2 把 `domain/` + `repositories/` + `infrastructure/` 三层压平：一个实体原本要写两遍、靠转换函数搬运，加一个字段改五处。分层的收益是隔离变化，个人项目只有一个存储、一个用户、一套部署，没有需要隔离的变化。
 
 启动：
 
@@ -69,7 +71,7 @@ cd backend
 - `HF_ENDPOINT` 在 config 模块加载时就写进环境变量——`huggingface_hub` 把它读成模块级常量，晚设无效；
 - `llm_configured` / `smtp_configured` 提供"能力是否可用"的布尔判断，业务层据此给出人话错误，而不是堆栈。
 
-`app/infrastructure/config_store.py` 负责把设置页的改动写回 `.env`：保序替换、保留注释和未知键；打码值（含 `***`）一律忽略，避免把 `sk-***abc` 写回配置；`__CLEAR__` 是显式清空密钥的信号；写完**原地更新 `settings` 单例**，无需重启。可写字段白名单不含 `DATABASE_URL`（改了要重启，不开放热改）。
+`app/config_store.py` 负责把设置页的改动写回 `.env`：保序替换、保留注释和未知键；打码值（含 `***`）一律忽略，避免把 `sk-***abc` 写回配置；`__CLEAR__` 是显式清空密钥的信号；写完**原地更新 `settings` 单例**，无需重启。可写字段白名单不含 `DATABASE_URL`（改了要重启，不开放热改）。
 
 ### 2.3 配置模块关系
 
@@ -80,9 +82,9 @@ flowchart LR
   CS --> ENV[".env（唯一配置源）"]
   CS --> S[settings 单例原地更新]
   ENV --> S
-  S --> REG[registry.create 按配置选实现]
-  REG --> LLM[OpenAI 兼容 LLM]
-  REG --> EMB[Local BGE / 云端 Embedding]
+  S --> FAC[build_llm / build_embedding 按配置选实现]
+  FAC --> LLM[OpenAI 兼容 LLM]
+  FAC --> EMB[Local BGE / 云端 Embedding]
 ```
 
 ---
@@ -94,42 +96,46 @@ flowchart LR
 ```mermaid
 flowchart TD
   A[api/ 路由与 DTO] --> B[services/ 业务规则]
-  B --> C[repositories/ 数据访问 Protocol + SQLAlchemy 实现]
-  B --> D[infrastructure/ 外部能力]
+  B --> C[store.py 数据读写]
+  B --> D[llm / parsers / splitter / practice_generate]
+  B --> I[stats / reviews 跨表聚合]
   A --> E[schemas/ Pydantic DTO]
-  C --> F[domain/models/entities.py 纯 dataclass]
-  D --> F
-  E --> F
-  A --> G[registry.py 注册表]
-  D --> G
+  C --> F[models.py 表结构 + 枚举 + JSON 快照]
+  I --> F
 ```
 
 各层边界：
 
-| 层    | 目录                              | 职责                                 | 不做的事                 |
-| ---- | ------------------------------- | ---------------------------------- | -------------------- |
-| 接口   | `app/api/`                      | 路由、参数校验、异常→HTTP 码、DTO 组装           | 不写业务规则、不拼复杂 SQL      |
-| 应用   | `app/services/`                 | 状态机、任务编排、输出清洗、跨仓储协调                | 不直接写 SQL、不依赖 FastAPI |
-| 领域   | `app/domain/models/entities.py` | 纯 dataclass 与枚举，统一语言               | 不依赖框架、不持久化自己         |
-| 仓储   | `app/repositories/`             | ORM↔领域对象转换、CRUD、筛选、批量关联替换          | 不承载业务判断              |
-| 基础设施 | `app/infrastructure/`           | 解析器、切分、LLM、Embedding、向量库、FTS、配置、邮件 | 不被业务层直接 import 具体实现  |
+| 层 | 位置 | 职责 | 不做的事 |
+| --- | --- | --- | --- |
+| 接口 | `app/api/` | 路由、参数校验、异常→HTTP 码、DTO 组装 | 不写业务规则、不拼复杂 SQL |
+| 契约 | `app/schemas/` | Pydantic 出入参 | 不写业务逻辑 |
+| 应用 | `app/services/` | 状态机、任务编排、输出清洗 | 不写 SQL、不依赖 FastAPI |
+| 读写 | `app/store.py` | 一个实体一个类：CRUD、筛选、批量关联替换 | 不承载业务判断 |
+| 数据 | `app/models.py` | 表结构、枚举、JSON 快照 | 不写业务流程 |
+| 聚合 | `app/stats.py` / `app/reviews.py` | 跨多张表的只读查询 | 不写业务流程 |
+| 能力 | `app/llm.py`、`parsers.py`、`splitter.py`、`vectorstore.py`、`fts.py`、`practice_generate.py`、`mailer.py`、`scheduler.py` | 各自一类外部能力 | 业务层只通过工厂函数用，不 import 具体实现 |
 
-`repositories/base.py` 定义了仓储 Protocol。当前 API 层直接实例化 SQLAlchemy 实现（通过 `Depends(get_db)` 注入 Session），协议更多是给未来替换存储留的契约。
+实体就是 ORM 对象，没有第二份副本：`store.py` 返回模型实例，API 层直接转 Pydantic 输出。
 
-### 3.2 六个扩展点
+### 3.2 可替换能力
 
-`app/registry.py` 是一个泛型 `Registry[T]`，提供 `register(key)` 装饰器、`get(key)`、`create(key, **kwargs)`。六个实例：
+不做插件机制，也没有注册表。每类能力由**一个工厂函数**构造，配置决定走哪个分支：
 
-| 注册表                  | 已注册实现                                                                       | 端口定义                                      |
-| -------------------- | --------------------------------------------------------------------------- | ----------------------------------------- |
-| `LLM_REGISTRY`       | `openai` / `deepseek` / `qwen` / `moonshot` → 同一个 `OpenAICompatibleLLM`     | `infrastructure/llm/base.py::LLMProvider` |
-| `EMBEDDING_REGISTRY` | `local` / `bge` → `LocalBgeEmbedding`；`cloud` / `openai` → `CloudEmbedding` | 同文件 `EmbeddingProvider`                   |
-| `PARSER_REGISTRY`    | `pdf` / `docx` / `markdown` / `text`                                        | `infrastructure/parsers/base.py`          |
-| `GENERATOR_REGISTRY` | 空，M4 出题器预留                                                                  | `infrastructure/generators/base.py`       |
-| `NOTIFIER_REGISTRY`  | 空，M5 邮件预留                                                                   | `infrastructure/mail/base.py`             |
-| `RENDERER_REGISTRY`  | 空，预留                                                                        | —                                         |
+| 能力 | 工厂函数 | 现有实现 | 端口定义 |
+| --- | --- | --- | --- |
+| 对话模型 | `build_llm()` | `deepseek` / `qwen` / `openai` / `moonshot` → 同一个 `OpenAICompatibleLLM` | `app/llm.py::LLMProvider` |
+| 向量化 | `build_embedding()` | `local`/`bge` → `LocalBgeEmbedding`；`cloud`/`openai` → `CloudEmbedding` | 同文件 `EmbeddingProvider` |
+| 文档解析 | `resolve_parser(ext)` | `pdf` / `docx` / `markdown` / `text` | `app/parsers.py::DocumentParser` |
+| 出题 | `generate_questions(type, …)` | 单选 / 多选 / 判断 / 简答 | — |
+| 邮件推送 | `build_notifier()` | SMTP | — |
 
-业务侧只写 `build_llm()` / `build_embedding()` / `resolve_parser(ext)`；切换供应商改配置即可。`OpenAICompatibleLLM` 一个类注册四个键，因为这几家都提供 OpenAI 兼容端点，只为 base_url 和默认模型不同准备了一份 `LLM_PRESETS`。
+切换供应商改配置即可。`OpenAICompatibleLLM` 一个类覆盖四家，因为这几家都提供 OpenAI
+兼容端点，差别只在 `base_url` 与默认模型，这些写在 `LLM_PRESETS` 里。
+
+抽象只留给**实现真的不止一个**的地方：对话有两个 Embedding 实现、解析有四个格式，
+所以 `LLMProvider` / `EmbeddingProvider` / `DocumentParser` 保留；出题只有一个实现，
+就直接是函数，没有基类。
 
 ---
 
@@ -150,10 +156,10 @@ erDiagram
   chunks ||--o| note_sources : "chunk_id（只读引用）"
 ```
 
-ORM 定义在 `app/infrastructure/db/models.py`；Alembic 初始迁移 `migrations/versions/9fdd17ddd198_initial_schema.py` 已包含全部业务表（含 notes 系列）。另外两张**不在 ORM 里**的虚表：
+ORM 定义在 `app/models.py`；Alembic 初始迁移 `migrations/versions/9fdd17ddd198_initial_schema.py` 已包含全部业务表（含 notes 系列）。另外两张**不在 ORM 里**的虚表：
 
 - `vec_chunks`：`sqlite-vec` 的 `vec0`，列是 `chunk_id / embedding FLOAT[512] / topic_id partition key`；
-- `notes_fts`：FTS5，列是 `note_id UNINDEXED / title / body`，启动时由 `infrastructure/db/fts.py::ensure_schema` 创建。
+- `notes_fts`：FTS5，列是 `note_id UNINDEXED / title / body`，启动时由 `app/fts.py::ensure_schema` 创建。
 
 ### 4.2 几个关键设计
 
@@ -202,7 +208,7 @@ sequenceDiagram
 2. **重新处理是幂等的**（`_process`）：写之前先按 `document_id` 取旧 chunk id，删向量、删片段，再写新的。顺序是先向量后关系库；删除链路 `delete_document` 反过来：向量 → 片段/关联 → 文档 → 原始文件。
 3. **解析器按 `supports()` 挑，不按注册表键直接取**（`resolve_parser`）：遍历 `PARSER_REGISTRY.keys()` 实例化后问 `supports(ext)`，因此新增解析器无需改调用方。`builtin.py` 里 PDF 用 pypdf（扫描版明确提示不支持 OCR），DOCX 会把表格按行拼进正文，MD/TXT 按 utf-8-sig → utf-8 → gb18030 依次尝试编码。
 
-切分器 `infrastructure/splitters/text_splitter.py` 是纯函数：先按空行分段，段落超长再按 `。！？；` 切，仍超长硬切；贪心合并到目标 800 字（下限 500、上限 1000），相邻片段重叠 150 字。单元上限会先扣掉重叠空间，否则"重叠 + 满格单元"必然超限。有分页时逐页切并记 `page`。
+切分器 `app/splitter.py` 是纯函数：先按空行分段，段落超长再按 `。！？；` 切，仍超长硬切；贪心合并到目标 800 字（下限 500、上限 1000），相邻片段重叠 150 字。单元上限会先扣掉重叠空间，否则"重叠 + 满格单元"必然超限。有分页时逐页切并记 `page`。
 
 ### 5.3 主题迁移与索引健康
 
@@ -271,7 +277,7 @@ sequenceDiagram
 
 `app/api/notes.py::_excerpt()` 是列表摘要的清洗规则：删标题行、代码块、表格行、分隔线、角标、AI 标记；公式只留内容去 `$`；列表项之间插 `·`。搜索命中位置超过 1/3 时把截取窗口挪到命中处，否则用户只看到一屏无关内容。前端用 `<Highlight>` 包住命中的词，`components.css` 里给了琥珀底 + 继承色的 `mark` 样式。
 
-搜索本身在仓储层：`SqlAlchemyNoteRepository.list()` 优先走 FTS5，不可用时降级 `LIKE`。`infrastructure/db/fts.py` 的 `char_split()` 把汉字逐字用空格分开（FTS5 的 `unicode61` 会把连续汉字当一个 token，搜「索引」永远不命中），查询时再用短语查询要求字符连续；`bm25(notes_fts, 4.0, 1.0)` 让标题权重高于正文。FTS 行由笔记仓储在 add/update/delete 时**同一事务**维护，杜绝"笔记删了索引还在"。
+搜索本身在 `store.py` 的 `Notes.list()` 优先走 FTS5，不可用时降级 `LIKE`。`app/fts.py` 的 `char_split()` 把汉字逐字用空格分开（FTS5 的 `unicode61` 会把连续汉字当一个 token，搜「索引」永远不命中），查询时再用短语查询要求字符连续；`bm25(notes_fts, 4.0, 1.0)` 让标题权重高于正文。FTS 行由笔记仓储在 add/update/delete 时**同一事务**维护，杜绝"笔记删了索引还在"。
 
 ### 6.5 接口清单
 
@@ -298,8 +304,6 @@ sequenceDiagram
 
 - `GET/PUT /api/settings`：配置快照（密钥打码、数据库 URL 隐藏密码）与写回；改了 embedding 配置会顺带返回索引状态；
 - `GET /api/settings/index`、`POST /api/settings/index/rebuild`：索引状态与后台重建；
-|  |  |  |
-| --- | --- | --- |
 - `POST /api/settings/test`：`target = llm | embedding | smtp` 的连通性测试。测试时用 `merged_values()` 合并"当前配置 + 界面临时覆盖值"，**不写盘**，因此用户可以在保存前试。LLM 的 401 / 404 / 429 / timeout 都被翻译成针对性强的人话。
 
 注意 `save_settings` 改完配置后，`get_vector_store()` 会检测 `embedding_dimension` 变化并重建单例——否则它会拿旧维度去比对真实索引，得出错误结论。
@@ -312,9 +316,14 @@ sequenceDiagram
 |---|---|
 | `app/main.py` | lifespan、CORS、路由挂载 |
 | `app/config.py` | 全部环境变量、路径解析、能力布尔判断 |
-| `app/registry.py` | 六个扩展点，`Registry` 泛型 |
-| `app/bootstrap.py` | 内置实现注册入口（导入即触发装饰器） |
-| `app/domain/models/entities.py` | 全部业务概念与枚举，统一语言 |
+| `app/models.py` | 全部表结构、枚举与 JSON 快照 |
+| `app/store.py` | 按实体分组的读写：Topics / Documents / Chunks / Notes / PracticeSessions / WrongAnswers / Plans |
+| `app/db.py` | 引擎、会话、迁移、向量库单例 |
+| `app/stats.py` | 概览统计（跨表只读投影） |
+| `app/reviews.py` | 回顾报告：时间窗聚合 + 存取 |
+| `app/llm.py` | 对话与 Embedding：端口、实现、工厂 |
+| `app/practice_generate.py` | 出题：上下文 → 调模型 → 解析成题目 |
+| `app/parsers.py` | PDF / DOCX / Markdown / 纯文本解析 |
 | `app/schemas/` | Pydantic 请求 / 响应 DTO |
 | `app/api/router.py` | 路由聚合清单 |
 | `app/api/documents.py` | 上传 / 粘贴 / 批量改归属 / 重新处理 / 片段列表 |
@@ -329,19 +338,19 @@ sequenceDiagram
 | `app/services/chat_service.py` | M3 检索 + SSE 问答 |
 | `app/services/chat_prompts.py` | 问答提示词契约 |
 | `app/services/webfetch_service.py` | 网页导入的 URL 校验与错误人话化 |
-| `app/infrastructure/webfetch.py` | httpx 抓取 + trafilatura 转 Markdown |
+| `app/webfetch.py` | httpx 抓取 + trafilatura 转 Markdown |
 | `app/services/topic_service.py` | 主题保护、冲突、删除迁移 |
-| `app/repositories/sqlalchemy_repo.py` | ORM↔领域转换、筛选、批量关联替换、FTS 同步 |
-| `app/repositories/stats_repo.py` | 首页聚合 |
-| `app/infrastructure/db/session.py` | engine / Session / 迁移 / 向量库与 FTS 开关 |
-| `app/infrastructure/db/models.py` | 业务表 ORM 定义 |
-| `app/infrastructure/db/fts.py` | FTS5 虚表、中文按字切分、bm25 查询 |
-| `app/infrastructure/vectorstore/sqlite_vec_store.py` | vec0 建表、写入、删除、分区搬移、Top-K 检索 |
-| `app/infrastructure/llm/` | LLM / Embedding 端口与实现 |
-| `app/infrastructure/parsers/builtin.py` | PDF / DOCX / MD / TXT 解析器 |
-| `app/infrastructure/splitters/text_splitter.py` | 中文友好的切分策略（纯函数） |
-| `app/infrastructure/config_store.py` | `.env` 保序写入、打码与即时生效 |
-| `app/infrastructure/db/seed.py` | 内置主题与主题包 |
+| `app/store.py` | ORM↔领域转换、筛选、批量关联替换、FTS 同步 |
+| `app/stats.py` | 首页聚合 |
+| `app/db.py` | engine / Session / 迁移 / 向量库与 FTS 开关 |
+| `app/models.py` | 业务表 ORM 定义 |
+| `app/fts.py` | FTS5 虚表、中文按字切分、bm25 查询 |
+| `app/vectorstore.py` | vec0 建表、写入、删除、分区搬移、Top-K 检索 |
+| `app/llm.py` | LLM / Embedding 端口与实现 |
+| `app/parsers.py` | PDF / DOCX / MD / TXT 解析器 |
+| `app/splitter.py` | 中文友好的切分策略（纯函数） |
+| `app/config_store.py` | `.env` 保序写入、打码与即时生效 |
+| `app/topic_seed.py` | 内置主题与主题包 |
 | `migrations/versions/*.py` | 初始 schema |
 | `scripts/smoke_m2.py` / `smoke_m25.py` | 端到端冒烟测试 |
 
@@ -372,12 +381,12 @@ sequenceDiagram
 
 | 能力 | 位置 | 状态 |
 |---|---|---|
-| LLM 流式输出 | `infrastructure/llm/openai_compat.py::OpenAICompatibleLLM.stream()` | ✅ 接入 `/api/chat` SSE |
-| 向量 Top-K 检索（含主题分区、白名单过滤） | `infrastructure/vectorstore/sqlite_vec_store.py::search()` | ✅ 接入 `chat_service.retrieve()`（未单独封装 Retriever 类，直接对接，与 ADR-09 一致） |
-| Embedding 单例 | `infrastructure/llm/bge_local.py::build_embedding()` | ✅ |
+| LLM 流式输出 | `app/llm.py::OpenAICompatibleLLM.stream()` | ✅ 接入 `/api/chat` SSE |
+| 向量 Top-K 检索（含主题分区、白名单过滤） | `app/vectorstore.py::search()` | ✅ 接入 `chat_service.retrieve()`（未单独封装 Retriever 类，直接对接，与 ADR-09 一致） |
+| Embedding 单例 | `app/llm.py::build_embedding()` | ✅ |
 | 来源定位数据结构 | `domain/models/entities.py::SourceRef` | 未使用：问答引用直接用 dict + `schemas/chat.py::CitationOut`，结构与 NoteSource 对齐 |
 | 片段查询接口 | `GET /api/documents/{id}/chunks` | ✅ |
-| 范围筛选（主题 / 标签） | `SqlAlchemyChunkRepository.list_by_topic()` 等 | ✅ 主题走分区键、标签/资料走白名单 |
+| 范围筛选（主题 / 标签） | `Chunks.list_by_topic()` 等 | ✅ 主题走分区键、标签/资料走白名单 |
 | 笔记来源深链 | `GET /notes/{id}?source=<chunk_id>` | ✅ 「存为笔记」还原 `[[chunk:id]]` 后复用 |
 
 ---
@@ -396,7 +405,7 @@ sequenceDiagram
 
 ### 11.2 网页导入（FR-01 扩展）
 
-核心文件：`infrastructure/webfetch.py`（httpx 抓取 + trafilatura 正文提取转 Markdown）、`services/webfetch_service.py`（URL 校验与错误人话化）、`POST /api/documents/webfetch`。
+核心文件：`app/webfetch.py`（httpx 抓取 + trafilatura 正文提取转 Markdown）、`services/webfetch_service.py`（URL 校验与错误人话化）、`POST /api/documents/webfetch`。
 
 - **只做预览不入库**：返回 title + markdown，前端在「导入资料」弹窗里填进"粘贴文本"表单，用户可编辑后点保存——入库复用 `/paste`，解析/切分/向量化仍是唯一一条路径，没有为网页引入第二种数据形态。
 - **边界**：仅 http/https；PDF 明确提示改走文件上传；5 MB / 20s 上限；提取正文 < 200 字视为失败（大概率是 JS 渲染页），提示改用粘贴导入。

@@ -46,7 +46,7 @@ def _trigger() -> CronTrigger:
 
 def _run_job() -> None:
     """调度触发：生成一份 7 天报告并推送。"""
-    from app.infrastructure.db.session import SessionLocal
+    from app.db import SessionLocal
     from app.services import review_service
 
     db = SessionLocal()
@@ -58,7 +58,7 @@ def _run_job() -> None:
             review_service.mark_push(db, report, False, "尚未配置 SMTP，报告只保存在本地")
             return
 
-        from app.infrastructure.mail.smtp_notifier import build_notifier
+        from app.mailer import build_notifier
 
         result = build_notifier().send_report(report)
         review_service.mark_push(db, report, result.ok, result.detail)

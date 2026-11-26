@@ -23,10 +23,10 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 
 from app.config import settings
-from app.infrastructure.db.session import SessionLocal
-from app.infrastructure.llm.openai_compat import build_llm
-from app.repositories.sqlalchemy_repo import SqlAlchemyStudyPlanRepository
-from app.repositories.stats_repo import StatsRepository
+from app.db import SessionLocal
+from app.llm import build_llm
+from app.store import Plans
+from app import stats
 from app.services import plan_prompts, plan_tools
 from app.services.plan_tools import ToolError
 
@@ -134,8 +134,8 @@ async def sse_plan(payload: dict) -> AsyncIterator[str]:
 
         # 循环前的检查：两份数据都是 0 时不出计划。
         # 否则模型会开始编「你最近在学什么」——这比不生成更糟。
-        stats = StatsRepository(db).summary()
-        if stats["documents"]["total"] == 0 and stats["practice"]["sessions"] == 0:
+        snapshot = stats.summary(db)
+        if snapshot["documents"]["total"] == 0 and snapshot["practice"]["sessions"] == 0:
             yield _event(
                 "no_data",
                 {
@@ -184,10 +184,10 @@ async def sse_plan(payload: dict) -> AsyncIterator[str]:
                 meta = {
                     "steps": steps,
                     "stats": {
-                        "documents": stats["documents"]["ready"],
-                        "sessions": stats["practice"]["finished"],
-                        "avg_score": round(float(stats["practice"]["avg_score"]), 1),
-                        "wrong": stats["wrong"]["total"],
+                        "documents": snapshot["documents"]["ready"],
+                        "sessions": snapshot["practice"]["finished"],
+                        "avg_score": round(float(snapshot["practice"]["avg_score"]), 1),
+                        "wrong": snapshot["wrong"]["total"],
                     },
                     "model": settings.llm_model,
                     "generated_at": datetime.now().astimezone().isoformat(),
@@ -210,7 +210,7 @@ async def sse_plan(payload: dict) -> AsyncIterator[str]:
 
                 plan_id = saved["plan_id"]
                 elapsed = round(time.monotonic() - started, 1)
-                SqlAlchemyStudyPlanRepository(db).update_meta(
+                Plans(db).update_meta(
                     plan_id, {"elapsed_seconds": elapsed, "steps_count": len(steps)}
                 )
                 yield _event(
