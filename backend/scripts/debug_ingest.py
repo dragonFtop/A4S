@@ -14,11 +14,11 @@ os.environ["DATABASE_URL"] = "sqlite:///./data/debug_ingest.db"
 if TEST_DB.exists():
     TEST_DB.unlink()
 
-from app.infrastructure.db.session import SessionLocal, get_vector_store  # noqa: E402
-from app.infrastructure.db.seed import ensure_builtin  # noqa: E402
-from app.infrastructure.db.session import init_db  # noqa: E402
-from app.services import ingest_service  # noqa: E402
-from app.repositories.sqlalchemy_repo import SqlAlchemyDocumentRepository  # noqa: E402
+from shared.infrastructure.db.session import SessionLocal, get_vector_store  # noqa: E402
+from shared.infrastructure.db.seed import ensure_builtin  # noqa: E402
+from shared.infrastructure.db.session import init_db  # noqa: E402
+import shared.services.ingest_service as ingest_service  # noqa: E402
+from shared.repositories.sqlalchemy_repo import SqlAlchemyDocumentRepository  # noqa: E402
 
 init_db()
 db = SessionLocal()

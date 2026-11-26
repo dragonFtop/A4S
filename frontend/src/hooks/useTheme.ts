@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 export type Theme = 'light' | 'dark'
 
-const STORAGE_KEY = 'a4s-theme'
+// 换过一套配色，旧键里存的是上一版自动写入的偏好，换新键让老用户也落到新的浅色默认
+const STORAGE_KEY = 'a4s-theme-v2'
 
 function resolveInitial(): Theme {
   // 支持 ?theme=dark 直接指定（便于截图、演示与分享固定主题的链接）
@@ -10,7 +11,8 @@ function resolveInitial(): Theme {
   if (forced === 'light' || forced === 'dark') return forced
   const saved = localStorage.getItem(STORAGE_KEY)
   if (saved === 'light' || saved === 'dark') return saved
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  // 默认浅色：产品以蓝白为主视觉，不跟随系统的深色偏好
+  return 'light'
 }
 
 export function useTheme() {

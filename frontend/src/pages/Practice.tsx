@@ -41,7 +41,6 @@ import {
   type QuestionType,
   type Topic,
 } from '../api/client'
-import HelpTip from '../components/ui/HelpTip'
 
 type ScopeMode = 'topic' | 'docs' | 'all'
 
@@ -335,14 +334,7 @@ export default function Practice() {
       <header className="page-head">
         <div>
           <h1>练习</h1>
-          <p className="page-sub">
-            从资料里出题，片段不够就不出。
-            <HelpTip label="了解出题规则">
-              每道题都绑定一组原文片段，生成后可以核对依据。
-              命中片段数不足时会直接失败，而不是让模型自由发挥——
-              这也是偶尔出题报错的原因。
-            </HelpTip>
-          </p>
+          <p className="page-sub">从资料出题，每道题都可核对原文依据。</p>
         </div>
         <div className="page-actions">
           {session && <span className="badge">{STATUS_LABEL[session.status]}</span>}
@@ -377,10 +369,6 @@ export default function Practice() {
               <div className="card-head">
                 <h2>
                   <ListChecks size={16} /> 题集草稿
-                  <HelpTip label="了解草稿核对">
-                    草稿阶段可以逐题核对：题干是否有歧义、选项是否互斥、解析是否对得上原文。
-                    不要的题直接删掉，再开始作答——开始之后答案就锁定了。
-                  </HelpTip>
                 </h2>
                 <span className="head-note">
                   {session.questions.length} 题 · {formatClock(session.started_at)} 生成
@@ -452,10 +440,6 @@ export default function Practice() {
               <div className="card-head">
                 <h2>
                   <Target size={16} /> 组卷
-                  <HelpTip label="了解组卷与草稿">
-                    先从资料里生成一份草稿，逐题核对没问题再开始作答。
-                    模型出的题选项可能不互斥、解析也可能只对一半，先给你删题的机会，错题本才有资格被信任。
-                  </HelpTip>
                 </h2>
                 <span className="head-note">{readyDocs.length} 份可用资料</span>
               </div>

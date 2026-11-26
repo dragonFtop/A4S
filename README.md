@@ -3,13 +3,12 @@
 面向大学生的**个人学习助手**：把课程资料变成可问答、可出题、可回顾的知识底座。
 
 全部数据留在本机——资料、笔记、练习、报告都写进本地 SQLite，只有调用模型时才会联网。
+账号、空间与小组协作也跑在本机；把 `server` 部署到一台公用机器后，还可以按需接入小组公共库与别人的知识库，服务器不在线时界面直接显示离线，功能不受影响。
 
 > 本项目按 **SDD（规约驱动开发）** 推进：先写规约再写代码，实现与规约冲突时先改规约。
-> - **想读代码**：`docs/CODE_MAP.md`（先看这张地图，一小时建立全局认知）
-> - 产品规约：`docs/PRD.md`｜任务清单：`docs/TASKS.md`｜逐模块详解：`docs/BACKEND_CODE_GUIDE.md`
-> - 架构取舍（为什么这里不用 Agent）：`docs/AGENT_DECISION.md`
-> - v0.1 已完成 **145 / 145** 项，13 条 P0 需求全部通过（验收表见 PRD §10）。
-> - v0.2 追加 **FR-14 学习计划**（30 项）：`/plan` 页 + `POST /api/plan`，全项目唯一的 Agent 回路。
+>
+> - 产品规约：[docs/PRD.md](./docs/PRD.md)｜客户端/服务端边界：[docs/CLIENT_SERVER_SPLIT.md](./docs/CLIENT_SERVER_SPLIT.md)｜Agent 取舍：[docs/AGENT_DECISION.md](./docs/AGENT_DECISION.md)
+> - 当前版本 **v0.2.0**：13 条 P0（FR-01~FR-13）与 FR-14 学习计划均已落地，拆分后回归 **461 项断言全部通过**（明细见 CLIENT_SERVER_SPLIT §7）。
 
 ![学习概览](./docs/screenshots/01-overview.png)
 
@@ -19,52 +18,91 @@
 
 | 能力 | 说明 |
 |---|---|
-| **资料入库** | PDF / Word / Markdown / 纯文本；必选主题；网页正文抓取；失败会给出具体原因 |
-| **检索与问答** | 向量 + 全文双路召回，回答带来源角标，可点开原文片段；检索不到时不拿无关片段硬答，
-先声明"没有找到相关资料"，再用通用知识补一个回答，并标明"未使用你的资料"；知识库为空时也能提问，顶部一条状态条说明一次（不逐条重复）；
-每段回答下方常显 AI 生成声明，标出关联了几个片段、有没有标注引用 |
-| **电子笔记** | 从检索结果起草，模板固定结构（提纲 / 概念 / 代码 / 公式），草稿→定稿两态，AI 补写有标记 |
+| **资料入库** | PDF / Word / Markdown / 纯文本；必选主题；支持粘贴文本与网页正文抓取；失败会给出具体原因 |
+| **检索与问答** | 向量 + 全文双路召回，回答带来源角标，可点开原文片段；检索不到时不拿无关片段硬答，先声明"没有找到相关资料"，再用通用知识补答并标明"未使用你的资料"；知识库为空时也能提问，页面顶部只提示一次 |
+| **电子笔记** | 从检索结果或整份资料起草，模板固定结构（章节摘要 / 概念卡 / 代码笔记 / 公式清单），草稿→定稿两态，AI 补写有标记，支持 Markdown 导出 |
 | **检测题** | 单选 / 多选 / 判断 / 简答四种题型，按主题或按资料出题，每题附解析与来源 |
 | **作答与判分** | 客观题自动判分，简答题自评；支持断点续答、自动保存、未答提醒 |
 | **错题本** | 答错自动收录，按题目去重累加次数；按主题 / 资料 / 题型 / 时间筛选；勾选重练 |
 | **回顾报告** | 聚合 7 / 14 / 30 天的资料与练习，按主题分组输出五个部分：新增资料、练习情况、错题整理、薄弱点、复习建议 |
 | **定时与邮件** | 每周定时生成报告并发到邮箱；可关闭；失败会记录原因并在界面提示 |
 | **学习计划** | 说一句目标，按你的资料与错题排出一份 7 天计划；过程可见（查了什么、出了几道题），每个数字都能点开看到出处 |
+| **空间与共享** | 注册即得个人空间，可另建学习小组并拉人；小组资料 / 笔记按权限共享；可把某个库只读共享给别人问答 |
 | **可配置** | LLM / Embedding / SMTP 全部可在界面配置，密钥打码显示，支持「测试连接」与「发送测试邮件」 |
 
 ## 界面
 
-| 知识库 | 练习 |
+| 知识库 | 笔记 |
 |---|---|
-| ![知识库](./docs/screenshots/02-library.png) | ![练习](./docs/screenshots/04-practice.png) |
+| ![知识库](./docs/screenshots/02-library.png) | ![笔记](./docs/screenshots/09-notes.png) |
+
+| 问答（带来源角标） | 练习 |
+|---|---|
+| ![问答](./docs/screenshots/03-chat.png) | ![练习](./docs/screenshots/04-practice.png) |
 
 | 错题本 | 回顾 |
 |---|---|
 | ![错题本](./docs/screenshots/05-wrongbook.png) | ![回顾](./docs/screenshots/06-review.png) |
 
-学习计划（v0.2）：左侧是这次「查了什么、出了几道题」，右侧是历史；每一步都能点开看原始返回。
+学习计划：左侧是这次「查了什么、出了几道题」，右侧是历史；每一步都能点开看原始返回。
 
 ![学习计划](./docs/screenshots/10-plan.png)
 
-深色主题：
+| 空间与成员 | 设置 |
+|---|---|
+| ![空间](./docs/screenshots/11-spaces.png) | ![设置](./docs/screenshots/07-settings.png) |
+
+深色主题（默认浅色，可随时切换）：
 
 ![深色概览](./docs/screenshots/08-overview-dark.png)
 
-> 视觉上只做两件事：**面板是实心的**（层次靠底色差与 1px 描边，不叠玻璃），
-> **解释性文字收进标题旁的小问号**（点开才展开，首屏留给数据）。
-> 正文 14.5px、元信息不低于 12px，长时间阅读不费眼。
+窄屏下列表与表单改为单列，侧栏收成顶部横向导航：
+
+![移动端概览](./docs/screenshots/12-mobile.png)
+
+视觉与交互约定：
+
+- **默认浅色「白盆地」**：浅蓝灰底 + 实心白面板 + 品牌蓝作唯一信号色；深色主题为深海军蓝，使用同一套令牌。
+- **面板是实心的**：层次靠底色差与 1px 描边，不叠玻璃；解释性文字收进标题旁的小问号，首屏留给数据。
+- **响应式**：断点 1180 / 900 / 720 / 600 / 460；宽度 ≤900 时侧栏改为顶部横向导航（≤720 折成两行），
+  1600 / 1920 / 2200 以上内容区、侧栏与字号分档放大，大屏不会出现一条窄内容挂在中间。
+- 正文 14.5px、元信息不低于 12px，长时间阅读不费眼。
+
+## 账号与空间
+
+首次打开落在登录页，注册后自动获得一个个人空间；账号与数据都在本机。
+
+![登录页](./docs/screenshots/13-login.png)
+
+同一个「归属容器」承担两种用途，这是从 ragflow-plus 学来的做法——**团队不另建模型**：
+
+| | 个人空间 | 学习小组 |
+|---|---|---|
+| 创建方式 | 注册时自动建 | 在「空间」页手动建 |
+| 成员 | 只有自己 | 创建者可按用户名加人 |
+| 数据 | 资料/笔记/练习/错题/计划全在里面 | 同左，组内成员共享 |
+| 权限 | 不可加人、不可删 | 唯一 owner 不可移除或降级 |
+
+几条实现上的选择：
+
+- **主题是空间私有的**：两个小组各自都有「未分类」，所以主题表主键是 `(space_id, id)`，不是全局唯一 id。
+- **隔离是 fail-closed**：所有查询都带 `space_id`（必填参数，漏传直接报错），按 id 取不到就返回 404，而不是"不限空间地给出去"。
+- **token 存库不签 JWT**：为了"退出即失效"，代价是每次请求多一次 SQLite 主键查询。
+- **小组投稿先审核**：member 上传的资料与笔记进入待审，owner 批准后才切分、向量化、进检索。
+- **只读共享**：viewer 角色除问答外所有写接口一律 403，界面同时隐藏写按钮。
 
 ## 技术栈
 
 | 层 | 选型 |
 |---|---|
-| 前端 | React 18 + TypeScript + Vite + react-markdown（KaTeX / 代码高亮） |
+| 前端 | React 18 + TypeScript + Vite 6 + react-markdown（KaTeX / 代码高亮） |
 | 后端 | Python 3.11+ / FastAPI / SQLAlchemy 2 / Alembic |
-| 关系库 | SQLite（`sqlite3` 单文件，可切 PostgreSQL） |
+| 关系库 | SQLite（客户端与服务端各一个库文件，可切 PostgreSQL） |
 | 全文检索 | SQLite FTS5 |
 | 向量库 | sqlite-vec（SQLite 扩展，无独立服务进程） |
-| 模型 | LLM 走 OpenAI 兼容 API；Embedding 默认本地 BGE |
+| 模型 | LLM 走 OpenAI 兼容 API（DeepSeek / 通义 / OpenAI / Moonshot）；Embedding 默认本地 BGE |
 | 调度 | APScheduler（进程内，无系统级计划任务） |
+| 桌面外壳 | Tauri 2（`frontend/src-tauri/`，可选；构建需要 Rust 工具链） |
 
 ## 环境要求
 
@@ -101,6 +139,8 @@ LLM_MODEL=deepseek-chat
 
 密钥只存在本地 `.env`，已列入 `.gitignore`，界面展示时打码（`sk-***abc`）。
 
+可选：填 `SERVER_URL=http://<服务器>:8100` 进入联机模式，客户端会探测服务端并用 `disabled / online / offline` 三态徽标显示结果；留空为纯本地模式。
+
 ## 启动
 
 **方式一（推荐）**：双击项目根的 `start.bat`，自动拉起前后端并打开浏览器。
@@ -108,13 +148,17 @@ LLM_MODEL=deepseek-chat
 **方式二（手动）**：
 
 ```bash
-# 终端 1：后端
+# 终端 1：客户端（本地应用，必须能独立跑）
 cd backend
-.venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8000
+.venv/Scripts/python.exe -m uvicorn client.main:app --reload --port 8000
 
 # 终端 2：前端
 cd frontend
 npm run dev
+
+# 终端 3（可选）：公共服务端，只有需要小组公共库 / 联邦检索时才启动
+cd backend
+.venv/Scripts/python.exe -m uvicorn server.main:app --port 8100
 ```
 
 - 前端 http://localhost:5173
@@ -125,52 +169,40 @@ npm run dev
 
 ## 五分钟上手
 
-0. **注册 / 登录**：首次打开会落在登录页。注册后自动获得一个个人空间。
+0. **注册 / 登录**：首次打开会落在登录页。账号在本机创建，注册后自动获得一个个人空间。
    想和同学共用资料，就在「空间」页建一个学习小组，把对方用户名加进来。
-1. **建主题**：进「知识库」，首次会提示从预置包一键创建（计算机核心 / AI 与大模型），也可以自己建。
+1. **建主题**：进「知识库」，首次会提示从预置包一键创建（计算机核心 / AI 与大模型 / 数学 …），也可以自己建。
 2. **导入资料**：拖入 PDF 或粘贴文本，必须选主题——主题是后续出题、错题统计、报告分组的最小单位。
 3. **问一句**：进「问答」，问资料里的事。回答下方有来源角标，点开可看原文片段。
 4. **做题**：进「练习」，选范围与题型数量，生成后作答。交卷即出分数与逐题回顾。
 5. **看回顾**：进「回顾」选 7 天点生成。报告会告诉你哪块最弱、下一步先补什么。
+6. **排计划**：进「计划」，写一句目标（可不填），让它按资料与错题排一份 7 天清单。
 
 ## 目录结构
 
 ```
-backend/app/
-├── api/                 # 13 个路由模块：收请求、发响应，不写业务
-├── schemas/             # 出入参（Pydantic），前后端的契约
-├── domain/              # 业务对象（dataclass + 枚举），不依赖框架
-├── services/            # 业务规则：入库/索引/笔记/问答/练习/判分/回顾/计划
-├── repositories/        # 数据存取（一张表一个文件），SQL 只在这里
-├── infrastructure/      # 外部能力：db / llm / parsers / generators / mail / scheduler
-└── main.py              # 启动：迁移 → 种子 → 挂调度
-frontend/src/
-├── api/client.ts        # 全部接口封装
-├── components/          # ui 基础件 + kb / notes / practice 业务组件
-├── pages/               # 概览 / 知识库 / 笔记 / 问答 / 练习 / 错题本 / 计划 / 回顾 / 设置
-└── styles/              # tokens.css（令牌）+ pages.css（页面）
+backend/
+├── shared/                  # 两端共用：领域对象、模型、仓储、解析/切分/检索、账号与空间
+│   ├── api/                 # 账号、空间、共享、资料、笔记、主题、概览
+│   ├── services/            # 入库 / 索引 / 笔记 / 主题 / 判分 / 空间 / 共享
+│   ├── infrastructure/      # db / llm / parsers / splitter / vectorstore / fts / mail
+│   └── app_factory.py       # 应用工厂：建表、CORS、挂路由
+├── client/                  # 本地应用（可脱离服务端运行）
+│   ├── main.py              # 入口：shared + client 路由 + 调度器
+│   ├── api/                 # chat / practice / review / plan / settings / server_link
+│   └── services/            # 问答 / 练习 / 回顾 / 规划 Agent 与工具
+├── server/                  # 公共服务端（只挂 shared 路由 + 联邦中继）
+└── app/main.py              # 过渡兼容入口，等价于 client.main
+frontend/
+├── src/api/client.ts        # 全部接口封装
+├── src/components/          # 布局、Toast、基础件与各业务组件
+├── src/context/             # 登录态与当前空间
+├── src/pages/               # 概览 / 知识库 / 笔记 / 问答 / 练习 / 错题本 / 计划 / 回顾 / 空间 / 共享 / 设置 / 登录
+├── src/styles/              # tokens.css（令牌）+ base / layout / components / pages
+└── src-tauri/               # Tauri 2 桌面外壳（可选）
 ```
 
-> 每个目录具体管什么、一个请求怎么流过去，见 **[docs/CODE_MAP.md](./docs/CODE_MAP.md)**。
-
-## 账号与空间
-
-同一个「归属容器」承担两种用途，这是从 ragflow-plus 学来的做法——**团队不另建模型**：
-
-| | 个人空间 | 学习小组 |
-|---|---|---|
-| 创建方式 | 注册时自动建 | 在「空间」页手动建 |
-| 成员 | 只有自己 | 创建者可按用户名加人 |
-| 数据 | 资料/笔记/练习/错题/计划全在里面 | 同左，组内成员共享 |
-| 权限 | 不可加人、不可删 | 唯一 owner 不可移除或降级 |
-
-几条实现上的选择：
-
-- **主题是空间私有的**：两个小组各自都有「未分类」，所以主题表主键是 `(space_id, id)`，不是全局唯一 id。
-- **隔离是 fail-closed**：所有查询都带 `space_id`（必填参数，漏传直接报错），
-  按 id 取不到就返回 404，而不是"不限空间地给出去"。
-- **token 存库不签 JWT**：为了"退出即失效"，代价是每次请求多一次 SQLite 主键查询。
-- **升级兼容**：迁移前留下的数据落在占位空间 `default`，第一个注册的账号会整批认领。
+> 每个目录具体管什么、一条请求怎么流过客户端，见 **[docs/CLIENT_SERVER_SPLIT.md](./docs/CLIENT_SERVER_SPLIT.md)**。
 
 ## 可替换能力
 
@@ -188,32 +220,44 @@ frontend/src/
 
 ## 测试
 
-每个里程碑都有独立冒烟脚本，跑在各自的临时库上，不碰开发库：
+每个里程碑都有独立冒烟脚本，跑在各自的临时库上，不碰开发库。拆分后回归合计 **461 项断言**：
 
 ```bash
 cd backend
-.venv/Scripts/python.exe scripts/smoke_m2.py    # 资料入库与索引
-.venv/Scripts/python.exe scripts/smoke_m3.py    # 问答与笔记
-.venv/Scripts/python.exe scripts/smoke_m4.py    # 出题
-.venv/Scripts/python.exe scripts/smoke_m4b.py   # 作答判分与错题本
-.venv/Scripts/python.exe scripts/smoke_m5.py    # 回顾报告与定时推送
-.venv/Scripts/python.exe scripts/smoke_m7.py    # 学习计划 Agent（--real 走真实模型）
-.venv/Scripts/python.exe scripts/smoke_auth.py  # 账号 / 空间隔离 / 小组权限
+.venv/Scripts/python.exe scripts/smoke_m2.py      # 资料入库与索引（22）
+.venv/Scripts/python.exe scripts/smoke_m25.py     # 电子笔记（46）
+.venv/Scripts/python.exe scripts/smoke_m3.py      # 问答与检索范围（31）
+.venv/Scripts/python.exe scripts/smoke_m4.py      # 出题（61）
+.venv/Scripts/python.exe scripts/smoke_m4b.py     # 作答判分与错题本（84）
+.venv/Scripts/python.exe scripts/smoke_m5.py      # 回顾报告与定时推送（50）
+.venv/Scripts/python.exe scripts/smoke_m6.py      # 设置与索引（43）
+.venv/Scripts/python.exe scripts/smoke_m7.py      # 学习计划 Agent（43，--real 走真实模型）
+.venv/Scripts/python.exe scripts/smoke_rag.py     # 混合检索与空间隔离（18）
+.venv/Scripts/python.exe scripts/smoke_auth.py    # 账号 / 空间隔离 / 小组权限（31）
+.venv/Scripts/python.exe scripts/smoke_share.py   # 共享授权与只读保护（32）
 ```
 
-`smoke_auth.py` 覆盖 31 项断言：未登录 401、注册建空间、跨空间取资料 404、
-非成员访问 403、非 owner 管理成员 403、唯一 owner 不可移除/降级、登出后 token 失效。
+另有拆分与协作链路的专项脚本：`smoke_p15_review.py`（投稿审核）、`smoke_p2_catalog.py`（公共目录）、
+`smoke_p4_backup.py`（备份）、`smoke_p4_ui_contract.py`（前端契约）、`integration_p3_federation.py`（三进程联邦）。
 
-`smoke_m5.py` 覆盖 50 项断言：空库提示性报告、时间窗过滤、数字与库一致、模型降级、邮件失败不丢报告、调度启停。
+`smoke_m7.py` 校验规划 Agent 的边界：空库不出计划、步数上限、每个数字可回溯到某一步工具返回、
+工具报错继续换路、页面关闭后无后台残留。
 
 ## 数据库迁移
 
-开发环境启动时自动执行 `alembic upgrade head`。新增迁移：
+开发环境启动时自动执行 `alembic upgrade head`。客户端与服务端各有一个库文件，同一条迁移链分别 upgrade：
 
 ```bash
 cd backend
 .venv/Scripts/alembic revision --autogenerate -m "描述"
 .venv/Scripts/alembic upgrade head
+```
+
+从旧版升级时先跑一次数据迁移（把 `app.db` 搬到 `client.db`，原库归档可回滚）：
+
+```bash
+.venv/Scripts/python.exe scripts/migrate_split_db.py --dry-run
+.venv/Scripts/python.exe scripts/migrate_split_db.py
 ```
 
 切换 PostgreSQL 只需改 `.env` 的 `DATABASE_URL`，业务代码不动（仓储层已做方言隔离）。
@@ -233,26 +277,29 @@ cd backend
 先用「发送测试邮件」，它会真的发一封。常见原因：用了登录密码而不是 **SMTP 授权码**；465 端口要开 SSL、587 端口要关 SSL 走 STARTTLS。失败原因会写在提示里，报告不会丢。
 
 **Q：定时任务关机后会补发吗？**
-不会。v0.1 不注册系统计划任务，应用未运行时不会触发（补发列为 P1）。想在启动时立刻补一份，去「回顾」点「立即跑一次」。
+不会。v0.1 起就不注册系统计划任务，应用未运行时不会触发（补发列为 P1）。想在启动时立刻补一份，去「回顾」点「立即跑一次」。
 
 **Q：换 Embedding 模型后检索结果不对？**
 维度不一致时索引会失效。设置页会提示，并在「索引」里提供重建入口，重建会重新向量化全部片段。
+
+**Q：顶栏显示「服务器离线」有影响吗？**
+没有。个人资料、问答、练习、笔记、计划全部在本地客户端完成；只有小组公共库与联邦检索需要服务端，离线时这些入口会给出明确提示。
 
 ## 已知限制
 
 - **扫描版 PDF 无 OCR**：纯图片 PDF 解析出来是空的，会明确报错而不是塞进空片段。
 - **简答题不自动判分**：只看自评「掌握 / 未掌握」。本地模型判主观题不可靠，宁可不判。
-- **单机单用户**：没有账号体系，`user_id` 固定为 `local`，多人共用一台机器会看到彼此的数据。
+- **账号只在本机**：没有云端身份体系，换一台机器需要重新注册；`server` 端的小组库是另一套独立数据。
 - **笔记不回灌知识库**：笔记是学习产物，不参与检索，避免「自己写的话被当成资料引用」。
 - **定时任务不持久**：进程内调度，重启后按配置重新装载，关机期间不补发。
 - **模型输出需容错**：所有解析路径都有校验（来源编号白名单、答案归一化、JSON 容错），但极端情况下可能少出几道题。
 - **计划不做后台常驻**：规划 Agent 一次会话出一份计划，关掉页面就停，不会自己继续跑；只做 7 天粒度，没有月/季度规划（数据撑不住）。
+- **桌面外壳未在本机构建**：Tauri 2 骨架与步骤已就位（`frontend/src-tauri/BUILD.md`），当前环境缺少 Rust 工具链，`tauri dev/build` 未实测。
+- **移动端是响应式适配**：窄屏可用，但没有独立的移动 App，也不做手势与离线缓存。
 
 ## 版本状态
 
-v0.1.0 · 本地工作区 · 145/145 项完成，PRD 第 10 章 13 条 P0 全部通过。
+**v0.2.0**：客户端/服务端拆分（P0→P4）完成，账号 / 空间 / 小组投稿审核 / 共享 / 公共目录 / 联邦检索 / 备份全部落地；
+FR-14 学习计划补齐「接下来做什么」，拆分后回归 461 项断言全过。
 
-v0.2.0（在建）· 新增 FR-14 学习计划：全项目唯一带「动作 → 观察 → 再决定」回路的模块，
-6 步上限、5 个工具、每步可溯源。判据见 [`docs/AGENT_DECISION.md`](./docs/AGENT_DECISION.md)。
-
-后续迭代方向：OCR、多用户、移动端、笔记回灌、补发机制、题型自定义、日历排期。
+后续迭代方向：OCR、间隔重复排期（SM-2 / FSRS）、补发机制、笔记回灌、错题转笔记、题型自定义、日历排期、L1 插件协议。

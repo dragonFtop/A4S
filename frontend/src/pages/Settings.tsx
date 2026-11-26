@@ -31,7 +31,6 @@ import Field, { Switch } from '../components/ui/Field'
 import Empty, { Spinner } from '../components/ui/Feedback'
 import Modal from '../components/ui/Modal'
 import { useToast } from '../components/ui/Toast'
-import HelpTip from '../components/ui/HelpTip'
 
 type SectionKey = 'llm' | 'embedding' | 'smtp' | 'scheduler' | 'runtime'
 
@@ -313,13 +312,6 @@ export default function Settings() {
       <header className="page-head">
         <div>
           <h1>设置</h1>
-          <p className="page-sub">
-            模型、向量化与邮件配置。
-            <HelpTip label="了解配置存放位置">
-              保存后写入项目根目录的 <code>.env</code>，后端会即时重载，不需要重启。
-              密钥只存在本地文件里，不会上传到任何地方。
-            </HelpTip>
-          </p>
         </div>
         <div className="page-actions">
           {dirtyKeys.length > 0 && (

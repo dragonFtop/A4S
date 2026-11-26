@@ -122,7 +122,7 @@ def main() -> int:
         check("标题命中排在前面", r.json()["items"][0]["title"] == "二分查找")
 
         print("\n== 7. 输出清洗（不需要真模型）==")
-        from app.services import note_service
+        import shared.services.note_service as note_service
 
         allowed = {"c1": {"document_id": "d1", "snippet": "片段一"}, "c2": {"document_id": "d1", "snippet": "片段二"}}
         raw = (
@@ -143,8 +143,8 @@ def main() -> int:
         check("AI 补写计数", cleaned.count("<!--ai-->") == 1, str(cleaned.count("<!--ai-->")))
 
         print("\n== 7.5 手工角标对齐（create / update 也认 [[chunk:id]]）==")
-        from app.infrastructure.db.models import ChunkORM, DocumentORM
-        from app.infrastructure.db.session import SessionLocal
+        from shared.infrastructure.db.models import ChunkORM, DocumentORM
+        from shared.infrastructure.db.session import SessionLocal
 
         space_id = client.get("/api/auth/me").json()["current_space"]["id"]
         with SessionLocal() as session:

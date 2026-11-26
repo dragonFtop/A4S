@@ -161,9 +161,9 @@ def main() -> int:
             time.sleep(0.5)
         print(f"资料就绪：{[(d['name'], d['status'], d['chunk_count']) for d in docs]}\n")
 
-        from app.infrastructure.db import fts
-        from app.infrastructure.db.session import SessionLocal, get_vector_store
-        from app.services import chat_service
+        from shared.infrastructure.db import fts
+        from shared.infrastructure.db.session import SessionLocal, get_vector_store
+        import client.services.chat_service as chat_service
 
         store = get_vector_store()
         rows = {
@@ -178,7 +178,7 @@ def main() -> int:
                 # 仅向量。**必须和融合走同一个阈值**：融合会丢弃低于 MIN_SIMILARITY
                 # 的纯向量结果，单路若不过滤，比的就是两套标准，融合必输。
                 vector = chat_service._embed_query(question)
-                vec_hits = store.search(vector, top_k=TOP_K)
+                vec_hits = store.search(vector, top_k=TOP_K, space_id=space_id)
                 vec_docs = []
                 for chunk_id, distance in vec_hits:
                     if 1.0 - distance < chat_service.MIN_SIMILARITY:

@@ -1,4 +1,4 @@
-"""Alembic 环境：从 app.config 读取 DATABASE_URL，绑定 Base.metadata。
+"""Alembic 环境：从 shared.config 读取 DATABASE_URL，绑定 Base.metadata。
 
 这样切换 SQLite -> PostgreSQL 时，迁移脚本不需要改。
 """
@@ -16,9 +16,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.config import settings  # noqa: E402
-from app.infrastructure.db import models  # noqa: E402,F401
-from app.infrastructure.db.base import Base  # noqa: E402
+from shared.config import settings  # noqa: E402
+from shared.infrastructure.db import models  # noqa: E402,F401
+from shared.infrastructure.db.base import Base  # noqa: E402
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.resolved_database_url)

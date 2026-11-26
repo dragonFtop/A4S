@@ -33,7 +33,7 @@ if TEST_DB.exists():
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.config import settings  # noqa: E402
+from shared.config import settings  # noqa: E402
 from app.main import app
 from scripts._auth import login  # noqa: E402
 
@@ -210,7 +210,7 @@ def main() -> int:
         check("推送不存在的报告 404", client.post("/api/reviews/not-exist/push").status_code == 404)
 
         print("\n== 5. 模型不可达时出题给出可读失败 ==")
-        from app.services import practice_service
+        import client.services.practice_service as practice_service
 
         settings.llm_api_key = "sk-any"
         settings.llm_base_url = "http://127.0.0.1:9/v1"

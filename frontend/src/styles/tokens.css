@@ -1,61 +1,68 @@
 /* ==========================================================================
-   A4S · Night Passage
-   深靛的底，实心的面板，琥珀作为唯一信号。
+   A4S · White Basin
+   浅色的纸面，实心的白面板，蓝色作为唯一的信号。
 
    规则：
    1. 页面与组件只允许引用变量，不写死颜色；
    2. 面板是「实心的一层」，不是半透明的玻璃——文字对比靠它撑住；
-   3. 琥珀只出现在「值得看一眼的东西」上，一屏不超过三处。
+   3. 蓝色只出现在「值得看一眼的东西」上，一屏不超过三处。
    ========================================================================== */
 
 :root {
   /* ---------- 底 ---------- */
-  --bg: #08090c;
-  --bg-2: #0c0e13;
+  --bg: #f5f8fd;
+  --bg-2: #ffffff;
 
   /* ---------- 面板：三个明确的层级 ---------- */
-  --surface: #12151c;
-  --surface-2: #1a1e27;
-  --surface-3: #232833;
-  --line: rgba(255, 255, 255, 0.088);
-  --line-2: rgba(255, 255, 255, 0.16);
-  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  --surface: #ffffff;
+  --surface-2: #f2f6fc;
+  --surface-3: #e6eef9;
+  --line: rgba(17, 40, 74, 0.085);
+  --line-2: rgba(17, 40, 74, 0.16);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 
   /* ---------- 墨 ---------- */
-  --ink: #edf0f6;
-  --ink-2: #9ba4b4;
-  --ink-3: #6b7385;
+  --ink: #0f172a;
+  --ink-2: #4a5768;
+  --ink-3: #8593a8;
 
-  /* ---------- 信号：琥珀 ---------- */
-  --amber: #ffb454;
-  --amber-2: #ffc97a;
-  --amber-fill: #ffb454;
-  --amber-fill-2: #ffcb80;
-  --amber-soft: rgba(255, 180, 84, 0.12);
-  --amber-line: rgba(255, 180, 84, 0.3);
+  /* ---------- 信号：蓝（沿用 amber 变量名，值已换成品牌蓝） ---------- */
+  --amber: #2563eb;
+  --amber-2: #1d4ed8;
+  --amber-fill: #2f6bff;
+  --amber-fill-2: #4d84ff;
+  --amber-soft: rgba(47, 107, 255, 0.1);
+  --amber-line: rgba(47, 107, 255, 0.28);
 
   /* ---------- 状态 ---------- */
-  --teal: #4fd8c4;
-  --teal-soft: rgba(79, 216, 196, 0.12);
-  --rose: #ff8496;
-  --rose-soft: rgba(255, 132, 150, 0.12);
+  --teal: #0e9f8a;
+  --teal-soft: rgba(14, 159, 138, 0.1);
+  --rose: #d6455d;
+  --rose-soft: rgba(214, 69, 93, 0.09);
 
-  /* 文字专用的信号色：信号色本身是给发光元素用的亮色，
-     直接当小号文字色在浅底上对比度不足，单独开一组 */
-  --teal-ink: var(--teal);
-  --rose-ink: var(--rose);
-  --amber-ink: var(--amber);
+  /* 文字专用的信号色 */
+  --teal-ink: #0a6b5e;
+  --rose-ink: #a52a3e;
+  --amber-ink: #1d4ed8;
+
+  /* 实心信号色块上的文字颜色 */
+  --on-accent: #ffffff;
 
   /* ---------- 环境 ---------- */
-  --aurora-a: rgba(255, 172, 74, 0.11);
-  --aurora-b: rgba(96, 108, 240, 0.13);
-  --aurora-c: rgba(52, 200, 190, 0.08);
+  /* 保留变量名以免破坏既有引用，但不再用于动画背景 */
+  --aurora-a: rgba(47, 107, 255, 0.1);
+  --aurora-b: rgba(94, 154, 255, 0.07);
+  --aurora-c: rgba(14, 159, 138, 0.05);
 
-  /* ---------- 字体 ---------- */
-  --f-ui: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
-    'Noto Sans SC', 'Segoe UI', sans-serif;
+  /* ---------- 字体 ----------
+     拉丁字母走 Segoe UI，中文落到思源黑体（Noto Sans SC）；
+     标题用宋体/思源宋体，正文保持黑体，读起来更像一份正式的讲义。 */
+  --f-ui: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont,
+    'Noto Sans SC', 'PingFang SC', 'MiSans', 'Microsoft YaHei UI', 'Microsoft YaHei',
+    sans-serif;
   --f-mono: 'JetBrains Mono', ui-monospace, Consolas, 'Cascadia Mono', monospace;
-  --f-serif: 'Noto Serif SC', 'Songti SC', 'Source Han Serif SC', Georgia, serif;
+  --f-serif: Georgia, 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong',
+    'SimSun', serif;
 
   /* 兼容别名 */
   --font-sans: var(--f-ui);
@@ -73,7 +80,7 @@
   --text-2xl: 28px;
   --text-3xl: 34px;
 
-  --leading: 1.65;
+  --leading: 1.7;
   --leading-tight: 1.25;
 
   --space-1: 4px;
@@ -85,77 +92,88 @@
   --space-8: 32px;
   --space-10: 40px;
 
-  --radius-xs: 6px;
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 22px;
+  /* 控件统一尺寸：按钮、输入框、下拉共用一套高度，
+     同排出现时不会差出一两像素。 */
+  --control-h: 38px;
+  --control-h-sm: 30px;
+  --control-h-lg: 42px;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
   --radius-full: 999px;
 
   --rail-w: 248px;
-  --topbar-h: 60px;
+  --topbar-h: 58px;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 12px 28px -20px rgba(0, 0, 0, 0.9);
-  --shadow-lg: 0 26px 60px -40px rgba(0, 0, 0, 1);
-  --shadow-pop: 0 18px 44px -18px rgba(0, 0, 0, 0.72), 0 0 0 1px var(--line);
-  /* 浮层（问号气泡、下拉等）的底：深色比面板再亮一档，浅色直接上纯白 */
-  --pop: #262b36;
+  --shadow-sm: 0 1px 2px rgba(18, 38, 74, 0.06);
+  --shadow-md: 0 2px 6px -2px rgba(18, 38, 74, 0.08), 0 10px 24px -18px rgba(18, 38, 74, 0.28);
+  --shadow-lg: 0 1px 2px rgba(18, 38, 74, 0.04), 0 18px 40px -28px rgba(18, 38, 74, 0.24);
+  /* 卡片只用一层贴近的浅影，层次交给描边与底色 */
+  --shadow-card: 0 1px 1px rgba(18, 38, 74, 0.04), 0 8px 22px -20px rgba(18, 38, 74, 0.2);
+  --shadow-pop: 0 18px 44px -18px rgba(18, 38, 74, 0.28), 0 0 0 1px var(--line);
+  /* 浮层（问号气泡、下拉等）的底：浅色直接上纯白 */
+  --pop: #ffffff;
 
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 140ms;
   --duration: 200ms;
 
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 /* ==========================================================================
-   浅色：不是把深色反相，而是换成「白天的工作台」——
-   纸面更亮、面板更实、琥珀换成能压在浅色上的深琥珀。
+   暗色：深海军蓝的底，蓝仍是唯一的信号——不是把浅色反相，而是换到夜里的工作台。
    ========================================================================== */
 
-[data-theme='light'] {
-  --bg: #f4f5f7;
-  --bg-2: #ffffff;
+[data-theme='dark'] {
+  --bg: #070b14;
+  --bg-2: #0b111c;
 
-  --surface: #ffffff;
-  --surface-2: #f4f5f8;
-  --surface-3: #eaecf1;
-  --line: rgba(15, 18, 26, 0.082);
-  --line-2: rgba(15, 18, 26, 0.15);
-  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --surface: #101826;
+  --surface-2: #172134;
+  --surface-3: #1f2b40;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-2: rgba(255, 255, 255, 0.17);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 
-  --ink: #0e1116;
-  --ink-2: #4b5462;
-  --ink-3: #7c8595;
+  --ink: #e9eefb;
+  --ink-2: #9aa7bd;
+  --ink-3: #6b778e;
 
-  --amber: #a4560a;
-  --amber-2: #8a4708;
-  --amber-fill: #f0932b;
-  --amber-fill-2: #ffbc6b;
-  --amber-soft: rgba(214, 138, 38, 0.12);
-  --amber-line: rgba(180, 100, 12, 0.3);
+  --amber: #6f9dff;
+  --amber-2: #a8c6ff;
+  --amber-fill: #2f6bff;
+  --amber-fill-2: #4d84ff;
+  --amber-soft: rgba(72, 130, 255, 0.16);
+  --amber-line: rgba(88, 143, 255, 0.34);
 
-  --teal: #0f9483;
-  --teal-soft: rgba(15, 148, 131, 0.1);
-  --rose: #d0455a;
-  --rose-soft: rgba(208, 69, 90, 0.09);
+  --teal: #45d6bd;
+  --teal-soft: rgba(69, 214, 189, 0.12);
+  --rose: #ff8ba0;
+  --rose-soft: rgba(255, 139, 160, 0.12);
 
-  /* 浅底上的小号文字需要更深：原色对白背景仅约 3.5:1，小字不达标 */
-  --teal-ink: #0a6357;
-  --rose-ink: #a8283c;
-  --amber-ink: #7d4207;
+  /* 深底上小号文字可以直接用信号色 */
+  --teal-ink: var(--teal);
+  --rose-ink: var(--rose);
+  --amber-ink: var(--amber);
 
-  --aurora-a: rgba(255, 200, 128, 0.3);
-  --aurora-b: rgba(146, 146, 250, 0.13);
-  --aurora-c: rgba(96, 210, 200, 0.12);
+  /* 深色下实心信号色偏亮，压深色字更清楚 */
+  --on-accent: #0a1220;
 
-  --shadow-sm: 0 1px 2px rgba(18, 30, 56, 0.06);
-  --shadow-md: 0 2px 6px -2px rgba(18, 30, 56, 0.08), 0 10px 24px -18px rgba(18, 30, 56, 0.3);
-  --shadow-lg: 0 1px 2px rgba(18, 30, 56, 0.04), 0 18px 40px -28px rgba(18, 30, 56, 0.26);
-  --shadow-pop: 0 18px 44px -18px rgba(18, 30, 56, 0.3), 0 0 0 1px var(--line);
-  --pop: #ffffff;
+  --aurora-a: rgba(47, 107, 255, 0.14);
+  --aurora-b: rgba(94, 154, 255, 0.08);
+  --aurora-c: rgba(69, 214, 189, 0.05);
 
-  color-scheme: light;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 10px 24px -22px rgba(0, 0, 0, 0.9);
+  --shadow-lg: 0 22px 52px -38px rgba(0, 0, 0, 0.95);
+  --shadow-card: 0 1px 1px rgba(0, 0, 0, 0.16), 0 10px 26px -30px rgba(0, 0, 0, 0.65);
+  --shadow-pop: 0 14px 36px -20px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--line);
+  --pop: #1b2434;
+
+  color-scheme: dark;
 }

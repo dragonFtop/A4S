@@ -111,3 +111,9 @@ export function useSpace(): SpaceContextValue {
   if (!ctx) throw new Error('useSpace 必须在 SpaceProvider 内使用')
   return ctx
 }
+
+/** 当前空间是否可写：被共享的 viewer 只能看与问，不能写（后端同样返回 403）。 */
+export function useCanWrite(): boolean {
+  const { current } = useSpace()
+  return current?.my_role !== 'viewer'
+}

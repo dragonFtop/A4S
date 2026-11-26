@@ -30,7 +30,7 @@ if TEST_DB.exists():
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.config import settings  # noqa: E402
+from shared.config import settings  # noqa: E402
 from app.main import app
 from scripts._auth import login  # noqa: E402
 
@@ -147,7 +147,7 @@ def patch_llm(monkeypatch_target, fake: FakeLLM) -> None:
 def main() -> int:
     with TestClient(app) as client:
         login(client)
-        from app.services import practice_service
+        import client.services.practice_service as practice_service
 
         print("\n== 1. 参数与范围校验 ==")
         r = client.post("/api/practice/generate", json={"counts": {"single_choice": 5}})
@@ -369,8 +369,8 @@ def main() -> int:
             str({q["document_id"] for q in session5["questions"]}),
         )
 
-        from app.infrastructure.db.session import SessionLocal
-        from app.infrastructure.db.models import DocumentORM
+        from shared.infrastructure.db.session import SessionLocal
+        from shared.infrastructure.db.models import DocumentORM
 
         db = SessionLocal()
         try:
@@ -439,12 +439,12 @@ def main() -> int:
         check("删除后 404", client.get(f"/api/practice/sessions/{target}").status_code == 404)
 
         print("\n== 9. 解析工具单测 ==")
-        from app.infrastructure.generators.base import GenerationChunk, GenerationContext
-        from app.infrastructure.generators.parsing import (
+        from shared.infrastructure.generators.base import GenerationChunk, GenerationContext
+        from shared.infrastructure.generators.parsing import (
             normalize_question,
             parse_json_items,
         )
-        from app.domain.models.entities import QuestionType
+        from shared.domain.models.entities import QuestionType
 
         context = GenerationContext(
             chunks=[

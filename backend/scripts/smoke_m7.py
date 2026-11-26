@@ -28,20 +28,22 @@ if TEST_DB.exists():
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.config import settings  # noqa: E402
-from app.domain.models.entities import Question, QuestionType, SourceRef  # noqa: E402
-from app.infrastructure.db.models import (  # noqa: E402
+from shared.config import settings  # noqa: E402
+from shared.domain.models.entities import Question, QuestionType, SourceRef  # noqa: E402
+from shared.infrastructure.db.models import (  # noqa: E402
     ChunkORM,
     DocumentORM,
     PracticeSessionORM,
     TopicORM,
     WrongAnswerORM,
 )
-from app.infrastructure.db.session import SessionLocal  # noqa: E402
+from shared.infrastructure.db.session import SessionLocal  # noqa: E402
 from app.main import app
 from scripts._auth import login  # noqa: E402
-from app.repositories._converters import question_to_dict  # noqa: E402
-from app.services import plan_agent, plan_tools, practice_service  # noqa: E402
+from shared.repositories._converters import question_to_dict  # noqa: E402
+import client.services.plan_agent as plan_agent
+import client.services.plan_tools as plan_tools
+import client.services.practice_service as practice_service  # noqa: E402
 
 PASSED: list[str] = []
 FAILED: list[str] = []

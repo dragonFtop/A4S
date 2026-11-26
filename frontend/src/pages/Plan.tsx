@@ -15,7 +15,6 @@ import {
   X,
 } from 'lucide-react'
 import Button from '../components/ui/Button'
-import HelpTip from '../components/ui/HelpTip'
 import { useToast } from '../components/ui/Toast'
 import MarkdownView from '../components/notes/MarkdownView'
 import {
@@ -169,17 +168,6 @@ export default function Plan() {
       <header className="page-head">
         <div>
           <h1>计划</h1>
-          <p className="page-sub">
-            根据进度、薄弱点和错题，排未来 7 天做什么。
-            <HelpTip label="计划是怎么来的">
-              它不是一次问答：会先查你的进度，再找薄弱知识点，必要时翻错题、出一套针对性的题，
-              最后把这些写成七天安排。中间每一步都显示在下面，点开能看到那一步到底查到了什么。
-              <br />
-              <br />
-              它只读数据、只写这份计划：不改笔记、错题本和题库，也不会自己给分或安排复习日期。
-              资料和练习都是 0 时不会生成。最多 6 步，超时会带着已查到的结论停下。
-            </HelpTip>
-          </p>
         </div>
         <div className="page-actions">
           {running ? (

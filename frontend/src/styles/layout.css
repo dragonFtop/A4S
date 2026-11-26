@@ -23,40 +23,29 @@
   gap: 24px;
   padding: 20px 14px 14px;
   border-right: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(18px) saturate(1.1);
-  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  background: var(--bg-2);
+  /* 短屏时导航自己滚，别把整页撑高（之前会把页面顶出一条空白） */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 4px 8px 10px;
+  gap: 12px;
+  padding: 6px 10px 14px;
 }
 
-/* 品牌标记：一个会呼吸的发光点，替代字母牌 */
-.brand-orb {
-  position: relative;
+/* 品牌图标：取自项目 logo 的图形部分，白底 + 圆角 */
+.brand-mark {
   width: 34px;
   height: 34px;
   flex: none;
-  border-radius: 12px;
-  background: linear-gradient(
-    145deg,
-    var(--amber),
-    color-mix(in srgb, var(--amber) 46%, var(--rose))
-  );
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 34%, transparent),
-    0 8px 18px -8px color-mix(in srgb, var(--amber) 70%, transparent);
-}
-
-.brand-orb::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.55), transparent 56%);
+  border-radius: 10px;
+  object-fit: cover;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line);
 }
 
 .brand-text {
@@ -67,9 +56,10 @@
 }
 
 .brand-name {
-  font-size: 17px;
-  font-weight: 750;
-  letter-spacing: -0.01em;
+  font-family: var(--f-serif);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   line-height: 1.15;
 }
 
@@ -85,7 +75,7 @@
 .nav-groups {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
   margin: 0 -4px;
   padding: 2px 4px;
 }
@@ -109,8 +99,8 @@
   display: flex;
   align-items: center;
   gap: 11px;
-  height: 38px;
-  padding: 0 11px;
+  height: 40px;
+  padding: 0 12px;
   border-radius: 10px;
   color: var(--ink-2);
   font-size: 14px;
@@ -246,11 +236,9 @@
   gap: 12px;
   height: var(--topbar-h);
   flex: none;
-  padding: 0 32px;
+  padding: 0 40px;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg) 76%, transparent);
-  backdrop-filter: blur(18px) saturate(1.15);
-  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  background: var(--bg);
 }
 
 .crumb {
@@ -265,25 +253,21 @@
   gap: 6px;
   font-size: 11.5px;
   color: var(--ink-3);
-  padding: 3px 9px 3px 8px;
+  padding: 3px 8px 3px 7px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-full);
+  border-radius: 6px;
   white-space: nowrap;
 }
 
 .status-pill i {
   width: 5px;
   height: 5px;
-  border-radius: 50%;
+  border-radius: 1px;
   background: var(--teal);
-  box-shadow: 0 0 7px color-mix(in srgb, var(--teal) 70%, transparent);
-  animation: pulse 2.6s ease-in-out infinite;
 }
 
 .status-pill.is-off i {
   background: var(--rose);
-  box-shadow: 0 0 7px color-mix(in srgb, var(--rose) 70%, transparent);
-  animation: none;
 }
 
 .topbar-right {
@@ -303,10 +287,10 @@
 .content {
   flex: 1;
   width: 100%;
-  padding: 30px 32px 56px;
+  padding: 36px 40px 64px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 24px;
   max-width: 1420px;
   margin: 0 auto;
 }
@@ -318,15 +302,16 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 24px;
   animation: rise 420ms var(--ease) both;
 }
 
 .page-head {
   display: flex;
-  align-items: flex-end;
-  gap: 20px;
-  padding: 2px 2px 0;
+  align-items: center;
+  gap: 24px;
+  padding: 2px 2px 18px;
+  border-bottom: 1px solid var(--line);
 }
 
 .page-head > div:first-child {
@@ -334,11 +319,16 @@
 }
 
 .page-head h1 {
-  font-size: clamp(23px, 2.1vw, 30px);
-  font-weight: 760;
-  line-height: 1.2;
-  letter-spacing: -0.028em;
-  margin-bottom: 6px;
+  font-family: var(--f-serif);
+  font-size: clamp(23px, 1.9vw, 28px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.012em;
+  margin-bottom: 5px;
+}
+
+.page-head h1:last-child {
+  margin-bottom: 0;
 }
 
 /* 副标题默认只留一行；更长的解释交给问号 */
@@ -479,17 +469,90 @@
     position: static;
     height: 52px;
   }
+
+  /* 空间切换收成图标、用户名收起：把横向空间留给导航 */
+  .rail .space-switch {
+    margin: 0 4px 0 0;
+    flex: none;
+  }
+
+  .rail .space-switch > summary {
+    height: 34px;
+    padding: 0 8px;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .rail .space-switch > summary:hover {
+    background: var(--surface-2);
+  }
+
+  .rail .space-switch-text,
+  .rail .rail-user-name {
+    display: none;
+  }
+
+  .rail .space-menu {
+    left: auto;
+    right: 0;
+    width: 220px;
+  }
+
+  .rail .rail-user {
+    gap: 4px;
+    padding: 0;
+    margin: 0;
+    border: 0;
+  }
+
+  /* 右侧渐隐，暗示导航还能继续横滑 */
+  .nav-groups {
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+  }
 }
 
 @media (max-width: 720px) {
+  /* 导航独占第二行：手机上不再和品牌、空间切换挤在同一条 */
+  .rail {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px 0;
+  }
+
+  .brand {
+    order: 1;
+  }
+
+  .space-switch {
+    order: 2;
+  }
+
+  .rail-foot {
+    order: 3;
+    margin-left: auto;
+    padding: 0;
+    border-left: 0;
+  }
+
+  .nav-groups {
+    order: 4;
+    flex: 1 1 100%;
+    padding: 0 0 8px;
+  }
+
   .content {
-    padding: 18px 14px 40px;
-    gap: 16px;
+    padding: 20px 16px 48px;
+    gap: 18px;
   }
 
   .topbar {
     padding: 0 14px;
     gap: 10px;
+  }
+
+  .topbar-date {
+    display: none;
   }
 
   .crumb {
@@ -514,5 +577,149 @@
 
   .page-head h1 {
     font-size: 23px;
+  }
+}
+
+@media (max-width: 460px) {
+  .content {
+    padding: 14px 12px 36px;
+  }
+
+  .topbar {
+    gap: 6px;
+  }
+
+  .topbar-right {
+    gap: 6px;
+  }
+
+  .status-pill {
+    padding: 3px 6px;
+  }
+}
+
+/* ==========================================================================
+   大屏：宽度、字号与节奏一起放大，别让内容缩在固定宽度里
+   ========================================================================== */
+
+@media (min-width: 1600px) {
+  :root {
+    --rail-w: 264px;
+    --topbar-h: 62px;
+  }
+
+  .topbar {
+    padding: 0 48px;
+  }
+
+  .content {
+    max-width: 1560px;
+    padding: 42px 48px 72px;
+    gap: 28px;
+  }
+
+  .page {
+    gap: 28px;
+  }
+
+  .page-head {
+    padding-bottom: 22px;
+  }
+
+  .page-head h1 {
+    font-size: 31px;
+  }
+
+  .page-sub {
+    font-size: 14.5px;
+  }
+
+  .nav-groups {
+    gap: 28px;
+  }
+
+  .nav-item {
+    height: 42px;
+    font-size: 14.5px;
+  }
+
+  .brand-name {
+    font-size: 19px;
+  }
+}
+
+@media (min-width: 1920px) {
+  :root {
+    --rail-w: 284px;
+    --topbar-h: 64px;
+  }
+
+  .topbar {
+    padding: 0 56px;
+  }
+
+  .content {
+    max-width: 1760px;
+    padding: 52px 56px 88px;
+    gap: 32px;
+  }
+
+  .page {
+    gap: 32px;
+  }
+
+  .page-head h1 {
+    font-size: 34px;
+  }
+
+  .page-sub {
+    font-size: 15px;
+  }
+
+  .nav-item {
+    height: 44px;
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 2200px) {
+  :root {
+    --rail-w: 300px;
+    --topbar-h: 66px;
+  }
+
+  .topbar {
+    padding: 0 64px;
+  }
+
+  .content {
+    max-width: 1840px;
+    padding: 56px 64px 96px;
+    gap: 36px;
+  }
+
+  .page {
+    gap: 36px;
+  }
+
+  .page-head h1 {
+    font-size: 36px;
+  }
+
+  .page-sub {
+    font-size: 15.5px;
+  }
+
+  .nav-groups {
+    gap: 32px;
+  }
+
+  .nav-item {
+    height: 46px;
+    font-size: 15.5px;
+  }
+
+  .brand-name {
+    font-size: 20px;
   }
 }

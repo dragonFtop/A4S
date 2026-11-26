@@ -29,10 +29,10 @@ if TEST_DB.exists():
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.config import settings  # noqa: E402
+from shared.config import settings  # noqa: E402
 from app.main import app
 from scripts._auth import login  # noqa: E402
-from app.services import chat_service  # noqa: E402
+import client.services.chat_service as chat_service  # noqa: E402
 
 PASSED: list[str] = []
 FAILED: list[str] = []
@@ -159,8 +159,8 @@ def main() -> int:
 
 
 def _run_scope_tests(client, topic_id, tag_id, doc_a, doc_b, want_real):
-    from app.infrastructure.db.session import SessionLocal
-    from app.services import chat_service as cs
+    from shared.infrastructure.db.session import SessionLocal
+    import client.services.chat_service as cs
 
     space_id = client.get("/api/auth/me").json()["current_space"]["id"]
     db = SessionLocal()
@@ -275,7 +275,7 @@ def _run_scope_tests(client, topic_id, tag_id, doc_a, doc_b, want_real):
             if not settings.llm_configured:
                 print("  [skip] 未配置 LLM_API_KEY")
             else:
-                from app.infrastructure.llm.openai_compat import build_llm
+                from shared.infrastructure.llm.openai_compat import build_llm
 
                 cs.build_llm = build_llm
                 settings.llm_api_key = os.environ["LLM_API_KEY"] or settings.llm_api_key

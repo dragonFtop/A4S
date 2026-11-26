@@ -43,7 +43,7 @@ export default function Placeholder({
             ))}
           </ul>
           <p className="muted" style={{ textAlign: 'center', marginTop: 16 }}>
-            需求细节见 <code>docs/PRD.md</code>，进度见 <code>docs/TASKS.md</code>
+            需求细节见 <code>docs/PRD.md</code>
           </p>
         </div>
       </div>

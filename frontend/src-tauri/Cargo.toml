@@ -1,0 +1,18 @@
+[package]
+name = "a4s"
+version = "0.2.0"
+description = "A4S 本地知识库客户端（Tauri 外壳）"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# 由 Tauri CLI 在 release 构建时打开
+custom-protocol = ["tauri/custom-protocol"]

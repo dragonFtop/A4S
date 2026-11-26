@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
+  ArrowUp,
   ArrowUpRight,
   BookPlus,
   ChevronDown,
-  CornerDownLeft,
   FileText,
   Loader2,
   MessageSquareText,
+  Plus,
   Quote,
   RotateCcw,
   SearchX,
@@ -29,7 +30,6 @@ import {
   type NoContextInfo,
   type Topic,
 } from '../api/client'
-import HelpTip from '../components/ui/HelpTip'
 
 const SUGGESTIONS = ['这份资料的核心结论是什么？', '对比不同资料里的观点差异', '用一句话解释这个概念的直觉']
 /** 库是空的时候，上面那三个例子一定检索不到，换成不依赖资料的问法 */
@@ -71,6 +71,7 @@ function aiNote(turn: Turn): string {
 export default function Chat() {
   const toast = useToast()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [topics, setTopics] = useState<Topic[]>([])
   const [tags, setTags] = useState<Topic[]>([])
   const [rangeTopic, setRangeTopic] = useState('')
@@ -84,6 +85,8 @@ export default function Chat() {
   const [kbChunks, setKbChunks] = useState<number | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  /** 概览页带来的问题只自动发一次 */
+  const askedFromUrl = useRef(false)
 
   useEffect(() => {
     listTopics()
@@ -174,6 +177,20 @@ export default function Chat() {
     }
   }
 
+  // 概览页的大提问框带 ?q= 跳过来：直接发一次，再把参数清掉，
+  // 刷新页面不会重复发送。
+  useEffect(() => {
+    if (askedFromUrl.current) return
+    const q = searchParams.get('q')?.trim()
+    if (!q) return
+    askedFromUrl.current = true
+    const next = new URLSearchParams(searchParams)
+    next.delete('q')
+    setSearchParams(next, { replace: true })
+    send(q)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, setSearchParams])
+
   const stop = () => abortRef.current?.abort()
 
   const saveAsNote = async (turn: Turn) => {
@@ -214,19 +231,55 @@ export default function Chat() {
       <header className="page-head">
         <div>
           <h1>问答</h1>
-          <p className="page-sub">
-            优先依据你的资料作答，查不到会明说。
-            <HelpTip label="了解问答的依据">
-              回答前先检索相关片段（最相关的 5 个，相似度 0.42 以上），正文角标可点开看原文。
-              检索不到时不会拿无关片段硬答：先声明"没有找到相关资料"，再改用模型自己的通用知识回答，
-              这段回答下方会标明"未使用你的资料"。知识库为空时也能提问，顶部会提示一次，回答同样按通用知识生成。
-              有资料依据的回答也会标注引用情况。
-            </HelpTip>
-          </p>
+          <p className="page-sub">先查你的资料，查不到会说明。</p>
         </div>
       </header>
 
-      <div className="workbench">
+      <div className="chat-shell">
+        <div className="chat-scope">
+          <span className="chat-scope-label">
+            <ArrowUpRight size={13} /> 提问范围
+          </span>
+          <select
+            id="chat-topic"
+            aria-label="提问范围"
+            className="input select-sm chat-scope-select"
+            value={rangeTopic}
+            onChange={(e) => setRangeTopic(e.target.value)}
+          >
+            <option value="">全部资料</option>
+            {topics.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          {tags.length > 0 && (
+            <div className="chip-row chat-scope-tags">
+              {tags.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`chip chip-sm${rangeTags.includes(t.id) ? ' is-on' : ''}`}
+                  onClick={() => toggleTag(t.id)}
+                >
+                  {t.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="chat-scope-new"
+            icon={<Plus size={14} />}
+            disabled={!hasMessages || streaming}
+            onClick={() => setMessages([])}
+          >
+            新对话
+          </Button>
+        </div>
+
         <div className="card chat-panel">
           {kbEmpty && (
             <div className="chat-kb">
@@ -383,66 +436,20 @@ export default function Chat() {
               }}
             />
             {streaming ? (
-              <Button variant="ghost" onClick={stop}>
+              <Button variant="ghost" size="sm" onClick={stop}>
                 停止
               </Button>
             ) : (
-              <Button variant="primary" onClick={() => send()} icon={<CornerDownLeft size={13} />}>
-                发送
-              </Button>
+              <Button
+                variant="primary"
+                className="composer-send"
+                aria-label="发送"
+                title="发送"
+                onClick={() => send()}
+                icon={<ArrowUp size={17} />}
+              />
             )}
           </div>
-        </div>
-
-        <div className="stack">
-          <div className="card">
-            <div className="card-head">
-              <h2>
-                <ArrowUpRight size={16} /> 提问范围
-                <HelpTip label="了解检索规则">
-                  每次提问检索最相关的 5 个片段（相似度 ≥ 0.42），并带上最近 5 轮对话。
-                  没检索到时不会拿无关片段硬答：先声明，再用通用知识回答，并标明未使用资料。
-                  「存为笔记」会把引用还原成笔记角标，进编辑器还能点开原文。
-                </HelpTip>
-              </h2>
-            </div>
-            <div className="range-body">
-              <label className="range-label" htmlFor="chat-topic">
-                主题
-              </label>
-              <select
-                id="chat-topic"
-                className="input select-sm"
-                value={rangeTopic}
-                onChange={(e) => setRangeTopic(e.target.value)}
-              >
-                <option value="">全部资料</option>
-                {topics.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-              {tags.length > 0 && (
-                <>
-                  <span className="range-label">标签（可多选）</span>
-                  <div className="chip-row">
-                    {tags.map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        className={`chip chip-sm${rangeTags.includes(t.id) ? ' is-on' : ''}`}
-                        onClick={() => toggleTag(t.id)}
-                      >
-                        {t.name}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
         </div>
       </div>
     </section>

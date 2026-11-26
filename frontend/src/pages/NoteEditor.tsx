@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -471,8 +472,9 @@ export default function NoteEditor() {
         </div>
       </div>
 
-      {activeSource && (
-        <aside className="source-drawer">
+      {activeSource &&
+        createPortal(
+          <aside className="source-drawer">
           <div className="source-drawer-head">
             <span className="source-badge">[{activeSource.index}]</span>
             <div className="source-drawer-title">
@@ -506,8 +508,9 @@ export default function NoteEditor() {
               这份资料已经被删除了，片段内容来自笔记保存时的快照，仍然可以阅读。
             </p>
           )}
-        </aside>
-      )}
+          </aside>,
+          document.body
+        )}
 
       <Modal
         open={confirmRegen}

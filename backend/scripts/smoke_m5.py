@@ -37,7 +37,7 @@ if TEST_DB.exists():
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.config import settings  # noqa: E402
+from shared.config import settings  # noqa: E402
 from app.main import app
 from scripts._auth import login  # noqa: E402
 
@@ -236,8 +236,8 @@ def main() -> int:
         # 把 B 挪到 20 天前，用来验证时间窗真的在过滤
         from datetime import datetime, timedelta, timezone
 
-        from app.infrastructure.db.session import SessionLocal
-        from app.infrastructure.db.models import DocumentORM
+        from shared.infrastructure.db.session import SessionLocal
+        from shared.infrastructure.db.models import DocumentORM
 
         with SessionLocal() as db:
             row = db.get(DocumentORM, doc_b["id"])
@@ -245,7 +245,7 @@ def main() -> int:
             db.commit()
 
         settings.llm_api_key = "test-key"
-        from app.services import practice_service
+        import client.services.practice_service as practice_service
 
         practice_service.build_llm = lambda: FakeGenerateLLM()  # type: ignore[assignment]
         counts = {"single_choice": 3, "true_false": 1, "short_answer": 1}
@@ -288,7 +288,7 @@ def main() -> int:
         check("非法窗口被拒", client.post("/api/reviews", json={"window_days": 5}).status_code == 422)
 
         print("\n== 5. 模型可用时走 LLM 分析 ==")
-        import app.infrastructure.llm.openai_compat as compat
+        import shared.infrastructure.llm.openai_compat as compat
 
         fake_review = FakeReviewLLM()
         original_build = compat.build_llm
@@ -316,7 +316,7 @@ def main() -> int:
         check("测试发送提示未配置", not_configured["ok"] is False and "SMTP" in not_configured["message"], str(not_configured))
 
         print("\n== 7. 定时调度启停 ==")
-        from app.infrastructure import scheduler
+        from client.infrastructure import scheduler
 
         check("默认不注册任务", scheduler.state()["enabled"] is False)
         client.put("/api/settings", json={"scheduler_enabled": True, "scheduler_cron_day_of_week": "mon",

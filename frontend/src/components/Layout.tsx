@@ -5,6 +5,7 @@ import {
   CalendarClock,
   CalendarRange,
   FileText,
+  Handshake,
   LayoutDashboard,
   ListChecks,
   MessageSquareText,
@@ -15,7 +16,7 @@ import {
   Sun,
   Users,
 } from 'lucide-react'
-import { getHealth, getOverview, type Health } from '../api/client'
+import { getHealth, getOverview, serverApi, type Health, type ServerStatus } from '../api/client'
 import { useTheme } from '../hooks/useTheme'
 import { useSpace } from '../context/SpaceContext'
 
@@ -38,7 +39,10 @@ const NAV_GROUPS = [
   },
   {
     title: '协作',
-    items: [{ to: '/spaces', label: '空间', icon: Users, count: null }],
+    items: [
+      { to: '/spaces', label: '空间', icon: Users, count: null },
+      { to: '/shares', label: '共享', icon: Handshake, count: null },
+    ],
   },
 ]
 
@@ -52,6 +56,7 @@ const TITLES: Record<string, string> = {
   '/plan': '计划',
   '/review': '回顾',
   '/spaces': '空间与成员',
+  '/shares': '共享管理',
   '/settings': '设置',
 }
 
@@ -60,6 +65,7 @@ const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '�
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [health, setHealth] = useState<Health | null>(null)
   const [offline, setOffline] = useState(false)
+  const [server, setServer] = useState<ServerStatus | null>(null)
   const [counts, setCounts] = useState<{ library?: number; wrong?: number; notes?: number }>({})
   const { theme, toggle } = useTheme()
   const location = useLocation()
@@ -69,6 +75,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     getHealth()
       .then(setHealth)
       .catch(() => setOffline(true))
+  }, [])
+
+  // 服务端在线状态：disabled / online / offline，10s 轮询一次
+  useEffect(() => {
+    let alive = true
+    const tick = () => {
+      serverApi
+        .status()
+        .then((s) => {
+          if (alive) setServer(s)
+        })
+        .catch(() => {
+          if (alive) setServer({ state: 'offline', online: false, url: '', latency_ms: null, detail: null })
+        })
+    }
+    tick()
+    const timer = window.setInterval(tick, 10_000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
   }, [])
 
   // 导航上的计数：只在页面切换后刷新一次，成本可忽略
@@ -111,7 +138,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       <aside className="rail">
         <div className="brand">
-          <div className="brand-orb" aria-hidden="true" />
+          <img className="brand-mark" src="/a4s-mark.png" alt="" aria-hidden="true" />
           <div className="brand-text">
             <span className="brand-name">A4S</span>
             <span className="brand-sub">Agent for students</span>
@@ -119,7 +146,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <details className="space-switch">
-          <summary>
+          <summary title={`当前空间：${current?.name ?? '未选择'}`}>
             <span className="space-icon">
               {current?.kind === 'group' ? <Users size={14} /> : <FileText size={14} />}
             </span>
@@ -226,6 +253,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <i />
             {offline ? '离线' : online ? '本地工作区' : '连接中'}
           </span>
+          {server && (
+            <span
+              className={server.state === 'online' ? 'status-pill' : 'status-pill is-off'}
+              data-server-state={server.state}
+              title={
+                server.state === 'disabled'
+                  ? '未配置服务端，纯本地运行'
+                  : server.url
+              }
+            >
+              <i />
+              {server.state === 'disabled'
+                ? '纯本地'
+                : server.state === 'online'
+                  ? '服务器在线'
+                  : '服务器离线'}
+            </span>
+          )}
           <div className="topbar-right">
             <span className="topbar-date">{today}</span>
           </div>

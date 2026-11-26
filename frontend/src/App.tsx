@@ -21,6 +21,7 @@ const NoteEditor = lazy(() => import('./pages/NoteEditor'))
 const Chat = lazy(() => import('./pages/Chat'))
 const Review = lazy(() => import('./pages/Review'))
 const Plan = lazy(() => import('./pages/Plan'))
+const Shares = lazy(() => import('./pages/Shares'))
 
 function Authed() {
   return (
@@ -38,6 +39,7 @@ function Authed() {
           <Route path="/plan" element={<Plan />} />
           <Route path="/review" element={<Review />} />
           <Route path="/spaces" element={<Spaces />} />
+          <Route path="/shares" element={<Shares />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/overview" replace />} />
         </Routes>

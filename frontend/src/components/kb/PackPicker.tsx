@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Compass } from 'lucide-react'
+import { Check } from 'lucide-react'
 import type { TopicPack } from '../../api/client'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
@@ -39,6 +39,7 @@ export default function PackPicker({ open, packs, onApply, onSkip }: Props) {
   return (
     <Modal
       open={open}
+      wide
       title="你在学什么？"
       description="选 1~3 个方向，我会把这些主题建好。之后随时可以增删改。"
       onClose={onSkip}
@@ -71,7 +72,9 @@ export default function PackPicker({ open, packs, onApply, onSkip }: Props) {
             >
               <span className="pack-head">
                 <span className="pack-name">{pack.name}</span>
-                {on ? <Check size={14} /> : <Compass size={14} className="pack-icon" />}
+                <span className="pack-check" aria-hidden="true">
+                  {on ? <Check size={12} strokeWidth={3} /> : null}
+                </span>
               </span>
               <span className="pack-summary">{pack.summary}</span>
               <span className="pack-topics">{pack.topics.slice(0, 4).join(' · ')}…</span>
@@ -80,7 +83,10 @@ export default function PackPicker({ open, packs, onApply, onSkip }: Props) {
         })}
       </div>
       <p className="pack-hint">
-        每个方向会附带「重点 / 公式 / 代码 / 易错 / 待整理」五个标签。最多选 {MAX_PACKS} 个。
+        <span>每个方向会附带「重点 / 公式 / 代码 / 易错 / 待整理」五个标签。</span>
+        <span className="pack-count">
+          {selected.length}/{MAX_PACKS}
+        </span>
       </p>
     </Modal>
   )

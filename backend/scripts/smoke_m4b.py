@@ -29,11 +29,11 @@ if TEST_DB.exists():
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.config import settings  # noqa: E402
-from app.domain.models.entities import Question, QuestionType  # noqa: E402
+from shared.config import settings  # noqa: E402
+from shared.domain.models.entities import Question, QuestionType  # noqa: E402
 from app.main import app
 from scripts._auth import login  # noqa: E402
-from app.services import grading  # noqa: E402
+import shared.services.grading as grading  # noqa: E402
 
 PASSED: list[str] = []
 FAILED: list[str] = []
@@ -252,7 +252,7 @@ def main() -> int:
     with TestClient(app) as client:
 
         login(client)
-        from app.services import practice_service
+        import client.services.practice_service as practice_service
 
         print("\n== 2. 准备资料 ==")
         topic_id = client.post("/api/topics", json={"name": "密码学", "kind": "topic"}).json()["id"]

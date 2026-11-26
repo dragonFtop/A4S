@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useCanWrite } from '../context/SpaceContext'
 import {
   Check,
-  Clock,
   FileText,
-  Layers,
   Pencil,
   Plus,
   RefreshCw,
@@ -35,10 +34,12 @@ import UploadPanel from '../components/kb/UploadPanel'
 import Button from '../components/ui/Button'
 import Empty, { SkeletonList } from '../components/ui/Feedback'
 import Field from '../components/ui/Field'
-import HelpTip from '../components/ui/HelpTip'
 import Modal from '../components/ui/Modal'
 import { useToast } from '../components/ui/Toast'
 import { formatBytes, formatDateTime } from '../utils/format'
+
+// 记住「先跳过」这个选择，跳过一次后不再每次进知识库都弹
+const PACK_SKIP_KEY = 'a4s-kb-pack-skipped'
 
 const STATUS_TEXT: Record<string, string> = {
   pending: '排队中',
@@ -48,6 +49,7 @@ const STATUS_TEXT: Record<string, string> = {
 }
 
 export default function KnowledgeBase() {
+  const canWrite = useCanWrite()
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   const [topics, setTopics] = useState<Topic[]>([])
@@ -122,6 +124,7 @@ export default function KnowledgeBase() {
   useEffect(() => {
     if (packChecked || topics.length === 0) return
     setPackChecked(true)
+    if (localStorage.getItem(PACK_SKIP_KEY) === '1') return
     getSeeded()
       .then(async (r) => {
         if (r.seeded) return
@@ -159,8 +162,14 @@ export default function KnowledgeBase() {
   const onApplyPacks = async (ids: string[]) => {
     const r = await applyPacks(ids)
     toast.success(`已建 ${r.created_topics} 个主题、${r.created_tags} 个标签`)
+    localStorage.removeItem(PACK_SKIP_KEY)
     setPackOpen(false)
     await loadAll()
+  }
+
+  const dismissPacks = () => {
+    localStorage.setItem(PACK_SKIP_KEY, '1')
+    setPackOpen(false)
   }
 
   const onSaveTopic = async () => {
@@ -236,80 +245,49 @@ export default function KnowledgeBase() {
   }
 
   return (
-    <section className="page">
+    <section className="page kb-page">
       <header className="page-head">
         <div>
           <h1>知识库</h1>
-          <p className="page-sub">
-            按主题归档，用标签做横向切分。
-            <HelpTip label="了解资料处理流程">
-              导入后依次做三件事：抽取正文、按语义切分成片段、在本地生成向量。
-              全过程不联网上传，片段就是问答与出题时检索的最小单位。
-            </HelpTip>
-          </p>
         </div>
         <div className="page-actions">
           <Button variant="ghost" size="sm" icon={<RefreshCw size={13} />} onClick={loadAll}>
             刷新
           </Button>
-          <Button
-            variant="primary"
-            icon={<Upload size={14} />}
-            onClick={() => setUploadOpen(true)}
-          >
-            导入资料
-          </Button>
+          {canWrite && (
+            <Button
+              variant="primary"
+              icon={<Upload size={14} />}
+              onClick={() => setUploadOpen(true)}
+            >
+              导入资料
+            </Button>
+          )}
         </div>
       </header>
 
-      <div className="grid-stats">
-        <div className="stat-card">
-          <div className="stat-card-head">
-            <span className="stat-label">资料总数</span>
-            <span className="stat-icon">
-              <FileText size={13} />
-            </span>
-          </div>
-          <div className="stat">
-            <span className="stat-value">
-              {stats?.total ?? docs.length}
-              <span className="stat-unit">份</span>
-            </span>
-            <span className="stat-delta">就绪 {stats?.ready ?? 0} 份</span>
-          </div>
+      <div className="figures">
+        <div className="figure">
+          <span className="figure-value">
+            {stats?.total ?? docs.length}
+            <i>份</i>
+          </span>
+          <span className="figure-label">资料 · 就绪 {stats?.ready ?? 0} 份</span>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-head">
-            <span className="stat-label">
-              知识片段
-              <HelpTip>资料被切成的检索单元。问答与出题时先召回相关片段，再交给模型。</HelpTip>
-            </span>
-            <span className="stat-icon">
-              <Layers size={13} />
-            </span>
-          </div>
-          <div className="stat">
-            <span className="stat-value">
-              {stats?.chunks ?? 0}
-              <span className="stat-unit">个</span>
-            </span>
-            <span className="stat-delta">来自 {stats?.ready ?? 0} 份已就绪资料</span>
-          </div>
+        <div className="figure">
+          <span className="figure-value">
+            {stats?.chunks ?? 0}
+            <i>个</i>
+          </span>
+          <span className="figure-label">知识片段</span>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-head">
-            <span className="stat-label">处理中</span>
-            <span className="stat-icon">
-              <Clock size={13} />
-            </span>
-          </div>
-          <div className="stat">
-            <span className="stat-value">
-              {stats?.processing ?? 0}
-              <span className="stat-unit">份</span>
-            </span>
-            <span className="stat-delta">解析失败 {stats?.failed ?? 0} 份</span>
-          </div>
+        <div className={`figure${(stats?.processing ?? 0) > 0 ? ' is-busy' : ''}`}>
+          <span className="figure-value">{stats?.processing ?? 0}</span>
+          <span className="figure-label">处理中</span>
+        </div>
+        <div className={`figure${(stats?.failed ?? 0) > 0 ? ' is-danger' : ''}`}>
+          <span className="figure-value">{stats?.failed ?? 0}</span>
+          <span className="figure-label">解析失败</span>
         </div>
       </div>
 
@@ -324,16 +302,18 @@ export default function KnowledgeBase() {
         <aside className="kb-side" aria-label="主题导航">
           <div className="kb-side-head">
             <span>主题</span>
-            <button
-              className="kb-side-add"
-              onClick={() => {
-                setTopicName('')
-                setTopicModal({ open: true })
-              }}
-              aria-label="新建主题"
-            >
-              <Plus size={13} />
-            </button>
+            {canWrite && (
+              <button
+                className="kb-side-add"
+                onClick={() => {
+                  setTopicName('')
+                  setTopicModal({ open: true })
+                }}
+                aria-label="新建主题"
+              >
+                <Plus size={13} />
+              </button>
+            )}
           </div>
 
           <button
@@ -355,7 +335,7 @@ export default function KnowledgeBase() {
                 <span className="kb-topic-name">{t.name}</span>
                 <span className="kb-topic-count">{t.count}</span>
               </button>
-              {!t.is_builtin && (
+              {canWrite && !t.is_builtin && (
                 <span className="kb-topic-ops">
                   <button
                     onClick={() => {
@@ -376,19 +356,7 @@ export default function KnowledgeBase() {
         </aside>
 
         <div className="kb-main">
-          <div className="kb-toolbar">
-            <div className="chip-row">
-              {tags.map((t) => (
-                <button
-                  key={t.id}
-                  className={`chip chip-sm${activeTags.includes(t.id) ? ' is-on' : ''}`}
-                  onClick={() => toggleTag(t.id)}
-                >
-                  <i className="dot" style={{ background: t.color }} />
-                  {t.name}
-                </button>
-              ))}
-            </div>
+          <div className="kb-bar">
             <label className="kb-search">
               <Search size={13} />
               <input
@@ -397,6 +365,21 @@ export default function KnowledgeBase() {
                 placeholder="搜索资料名"
               />
             </label>
+            {tags.length > 0 && (
+              <div className="chip-row">
+                {tags.map((t) => (
+                  <button
+                    key={t.id}
+                    className={`chip chip-sm${activeTags.includes(t.id) ? ' is-on' : ''}`}
+                    onClick={() => toggleTag(t.id)}
+                  >
+                    <i className="dot" style={{ background: t.color }} />
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <span className="kb-count">{docs.length} 份</span>
           </div>
 
           {selected.length > 0 && (
@@ -434,16 +417,16 @@ export default function KnowledgeBase() {
             </div>
           )}
 
-          <div className="card">
-            <div className="card-head">
-              <h2>
-                <FileText size={16} /> {activeTopic ? topicById.get(activeTopic)?.name : '全部资料'}
-              </h2>
-              <span className="head-note">{docs.length} 份</span>
+          <div className="kb-list">
+            <div className="kb-list-head">
+              <h2>{activeTopic ? topicById.get(activeTopic)?.name : '全部资料'}</h2>
+              <span className="kb-list-note">
+                {activeTags.length > 0 ? `${activeTags.length} 个标签筛选 · ` : ''}按导入时间倒序
+              </span>
             </div>
 
             {loading ? (
-              <SkeletonList rows={4} />
+              <SkeletonList rows={5} />
             ) : docs.length === 0 ? (
               <Empty
                 icon={<FileText size={22} />}
@@ -457,12 +440,12 @@ export default function KnowledgeBase() {
                 </Button>
               </Empty>
             ) : (
-              <div className="list">
+              <div>
                 {docs.map((d) => {
                   const failed = d.status === 'failed'
                   const checked = selected.includes(d.id)
                   return (
-                    <div key={d.id} className={`list-item${checked ? ' is-selected' : ''}`}>
+                    <div key={d.id} className={`kb-row${checked ? ' is-selected' : ''}`}>
                       <button
                         className={`checkbox${checked ? ' is-on' : ''}`}
                         onClick={() => toggleSelect(d.id)}
@@ -471,18 +454,12 @@ export default function KnowledgeBase() {
                       >
                         {checked && <Check size={11} />}
                       </button>
-                      <span className={`list-item-icon${failed ? ' is-fail' : ''}`}>
+                      <span className={`kb-row-ext${failed ? ' is-fail' : ''}`}>
                         {fileName(d)}
                       </span>
-                      <span className="list-item-main">
-                        <span className="list-item-title">
-                          <i className="dot" style={{ background: d.topic.color }} />
-                          {d.name}
-                        </span>
-                        <span className="list-item-meta">
-                          <span className={`status status-${d.status}`}>
-                            {STATUS_TEXT[d.status] ?? d.status}
-                          </span>
+                      <span className="kb-row-main">
+                        <span className="kb-row-title">{d.name}</span>
+                        <span className="kb-row-meta">
                           <span>{d.topic.name}</span>
                           <span>{formatBytes(d.size)}</span>
                           <span>{d.chunk_count} 片段</span>
@@ -493,15 +470,24 @@ export default function KnowledgeBase() {
                             </span>
                           ))}
                         </span>
-                        {failed && d.error && <span className="list-item-error">{d.error}</span>}
+                        {failed && d.error && <span className="kb-row-error">{d.error}</span>}
                       </span>
-                      <button
-                        className="row-action"
-                        onClick={() => setConfirmDelete(d)}
-                        aria-label="删除"
+                      <span
+                        className={`kb-row-state${
+                          failed ? ' is-fail' : d.status === 'ready' ? '' : ' is-busy'
+                        }`}
                       >
-                        <Trash2 size={13} />
-                      </button>
+                        {STATUS_TEXT[d.status] ?? d.status}
+                      </span>
+                      {canWrite && (
+                        <button
+                          className="row-action"
+                          onClick={() => setConfirmDelete(d)}
+                          aria-label="删除"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   )
                 })}
@@ -526,7 +512,7 @@ export default function KnowledgeBase() {
         open={packOpen}
         packs={packs}
         onApply={onApplyPacks}
-        onSkip={() => setPackOpen(false)}
+        onSkip={dismissPacks}
       />
 
       <Modal

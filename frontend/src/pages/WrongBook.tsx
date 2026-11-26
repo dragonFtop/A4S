@@ -26,7 +26,6 @@ import {
   type WrongAnswerItem,
   type WrongSummary,
 } from '../api/client'
-import HelpTip from '../components/ui/HelpTip'
 
 type Sort = 'recent' | 'count'
 
@@ -185,14 +184,7 @@ export default function WrongBook() {
       <header className="page-head">
         <div>
           <h1>错题本</h1>
-          <p className="page-sub">
-            答错自动收录，同一题只累加次数。
-            <HelpTip label="了解错题规则">
-              同一道题重复答错只增加「错了几次」，不会堆出重复条目。
-              每道题都能点回原文片段，对不上说明当初就没读懂。
-              重练只抽错题、不掺新题；答对不会自动移出——「会了」由你判断，不由系统猜。
-            </HelpTip>
-          </p>
+          <p className="page-sub">答错自动收录，同题只累加次数。</p>
         </div>
         <div className="page-actions">
           <Button
@@ -349,7 +341,6 @@ export default function WrongBook() {
           <div className="card-head">
             <h2>
               <BookOpenCheck size={16} /> 你在哪错得最多
-              <HelpTip>按真实作答计算错误率，而不是错题条数——错得多但做得也多，排名就不会虚高。</HelpTip>
             </h2>
           </div>
           {(summary?.by_topic ?? []).length === 0 ? (

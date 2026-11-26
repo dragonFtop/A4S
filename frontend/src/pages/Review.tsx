@@ -33,7 +33,6 @@ import {
   type ReportWindow,
   type ScheduleState,
 } from '../api/client'
-import HelpTip from '../components/ui/HelpTip'
 
 const WINDOWS: Array<{ value: ReportWindow; label: string }> = [
   { value: 7, label: '近 7 天' },
@@ -222,14 +221,6 @@ export default function Review() {
       <header className="page-head">
         <div>
           <h1>回顾</h1>
-          <p className="page-sub">
-            把这段时间的学习整理成一份报告。
-            <HelpTip label="了解报告内容">
-              一份报告包含：这段时间新增了哪些资料、覆盖了什么主题；练习套数与正确率的变化；
-              错得最多的知识点；薄弱点判断与下一步建议。
-              数字由程序统计，只有分析段落由模型撰写，模型不可用时会退化成规则版并在报告里注明。
-            </HelpTip>
-          </p>
         </div>
         <div className="page-actions rv-actions">
           <div className="rv-window">

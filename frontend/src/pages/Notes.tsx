@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useCanWrite } from '../context/SpaceContext'
 import {
   CheckCircle2,
   FileText,
@@ -24,7 +25,6 @@ import {
 import DraftWizard from '../components/notes/DraftWizard'
 import Button from '../components/ui/Button'
 import Empty, { SkeletonList } from '../components/ui/Feedback'
-import HelpTip from '../components/ui/HelpTip'
 import Modal from '../components/ui/Modal'
 import { useToast } from '../components/ui/Toast'
 import { formatRelative } from '../utils/format'
@@ -63,6 +63,7 @@ function Highlight({ text, term }: { text: string; term: string }) {
 }
 
 export default function Notes() {
+  const canWrite = useCanWrite()
   const toast = useToast()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -186,24 +187,25 @@ export default function Notes() {
       <header className="page-head">
         <div>
           <h1>笔记</h1>
-          <p className="page-sub">
-            模型起草，你核对定稿。
-            <HelpTip label="了解笔记流程">
-              AI 只是提案：起草时会标出哪些句子有原文出处、哪些是补写。
-              你逐段核对改完再点定稿，草稿状态不会进入回顾报告。
-            </HelpTip>
-          </p>
         </div>
         <div className="page-actions">
           <Button variant="ghost" size="sm" icon={<RefreshCw size={13} />} onClick={loadNotes}>
             刷新
           </Button>
-          <Button icon={<Plus size={14} />} onClick={openNew}>
-            空白新建
-          </Button>
-          <Button variant="primary" icon={<Sparkles size={14} />} onClick={() => setWizardOpen(true)}>
-            AI 起草
-          </Button>
+          {canWrite && (
+            <>
+              <Button icon={<Plus size={14} />} onClick={openNew}>
+                空白新建
+              </Button>
+              <Button
+                variant="primary"
+                icon={<Sparkles size={14} />}
+                onClick={() => setWizardOpen(true)}
+              >
+                AI 起草
+              </Button>
+            </>
+          )}
         </div>
       </header>
 
@@ -293,12 +295,20 @@ export default function Notes() {
             title={keyword ? '没有匹配的笔记' : '还没有笔记'}
             description={keyword ? '换个关键词试试。' : '让模型起草，或者从空白页开始。'}
           >
-            <Button variant="primary" icon={<Sparkles size={13} />} onClick={() => setWizardOpen(true)}>
-              AI 起草
-            </Button>
-            <Button icon={<Plus size={13} />} onClick={openNew}>
-              空白新建
-            </Button>
+            {canWrite && (
+              <>
+                <Button
+                  variant="primary"
+                  icon={<Sparkles size={13} />}
+                  onClick={() => setWizardOpen(true)}
+                >
+                  AI 起草
+                </Button>
+                <Button icon={<Plus size={13} />} onClick={openNew}>
+                  空白新建
+                </Button>
+              </>
+            )}
           </Empty>
         ) : (
           <ul className="note-list">
@@ -359,15 +369,17 @@ export default function Notes() {
                     >
                       <Pencil size={12} />
                     </button>
-                    <button
-                      aria-label="删除"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setPendingDelete(note)
-                      }}
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    {canWrite && (
+                      <button
+                        aria-label="删除"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPendingDelete(note)
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </li>

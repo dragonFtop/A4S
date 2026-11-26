@@ -1067,7 +1067,7 @@ export interface SpaceInfo {
   kind: 'personal' | 'group'
   owner_id: string
   member_count: number
-  my_role: 'owner' | 'member'
+  my_role: 'owner' | 'member' | 'viewer'
   created_at: string
 }
 
@@ -1088,7 +1088,7 @@ export interface MemberInfo {
   user_id: string
   username: string
   display_name: string
-  role: 'owner' | 'member'
+  role: 'owner' | 'member' | 'viewer'
   joined_at: string
 }
 
@@ -1117,4 +1117,57 @@ export const spaceApi = {
     apiDelete<void>(`/spaces/${id}/members/${userId}`),
   setRole: (id: string, userId: string, role: 'owner' | 'member') =>
     apiPatch<MemberInfo>(`/spaces/${id}/members/${userId}`, { role }),
+}
+
+/* ---------------- 服务端状态（P4 徽标） ---------------- */
+
+export interface ServerStatus {
+  state: 'disabled' | 'online' | 'offline'
+  online: boolean
+  url: string
+  latency_ms: number | null
+  detail: string | null
+}
+
+export const serverApi = {
+  // 后端带 15s 缓存；force 可强制重探
+  status: (force = false) =>
+    apiGet<ServerStatus>(`/server/status?force=${force ? 'true' : 'false'}`),
+}
+
+/* ---------------- 共享（P4 管理页） ---------------- */
+
+export interface ShareInfo {
+  id: string
+  space_id: string
+  space_name: string
+  owner_name: string
+  grantee_id: string
+  grantee_username: string
+  grantee_name: string
+  status: string
+  origin: string
+  message: string
+  created_at: string
+  decided_at: string | null
+}
+
+export interface ShareBoard {
+  granted: ShareInfo[]
+  incoming: ShareInfo[]
+  outgoing: ShareInfo[]
+}
+
+export const shareApi = {
+  board: () => apiGet<ShareBoard>('/shares'),
+  spaceShares: (spaceId: string) => apiGet<ShareInfo[]>(`/spaces/${spaceId}/shares`),
+  grant: (spaceId: string, username: string, message = '') =>
+    apiPost<ShareInfo>(`/spaces/${spaceId}/shares`, { username, message }),
+  decide: (spaceId: string, shareId: string, action: 'approve' | 'reject') =>
+    apiPatch<ShareInfo>(`/spaces/${spaceId}/shares/${shareId}`, { action }),
+  revoke: (spaceId: string, shareId: string) =>
+    apiDelete<void>(`/spaces/${spaceId}/shares/${shareId}`),
+  apply: (username: string, message = '') =>
+    apiPost<ShareInfo>('/shares/apply', { username, message }),
+  cancel: (shareId: string) => apiDelete<void>(`/shares/${shareId}`),
 }

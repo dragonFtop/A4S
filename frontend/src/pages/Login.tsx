@@ -40,7 +40,7 @@ export default function Login() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-brand">
-          <div className="brand-orb" aria-hidden="true" />
+          <img className="brand-mark" src="/a4s-mark.png" alt="" aria-hidden="true" />
           <div>
             <div className="auth-title">A4S</div>
             <div className="auth-sub">把资料变成会考你的老师</div>
@@ -122,8 +122,8 @@ export default function Login() {
 
         <p className="auth-hint">
           {mode === 'login'
-            ? '还没有账号？切到「注册」。数据保存在本机，不上传任何地方。'
-            : '注册会自动建一个个人空间。之后可以在里面新建学习小组、邀请同学。'}
+            ? '还没有账号？切到「注册」。'
+            : '注册会自动创建一个个人空间。'}
         </p>
       </div>
     </div>

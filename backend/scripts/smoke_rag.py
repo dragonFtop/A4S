@@ -88,7 +88,7 @@ def main() -> int:
         space_id = reg.json()["space"]["id"]
 
         print("\n== 1. 片段全文索引已建立 ==")
-        from app.infrastructure.db.session import FTS_ENABLED, SessionLocal
+        from shared.infrastructure.db.session import FTS_ENABLED, SessionLocal
 
         check("FTS5 可用", FTS_ENABLED)
         with SessionLocal() as db:
@@ -118,7 +118,7 @@ def main() -> int:
         check("全文索引条数与片段数一致", indexed == chunks and chunks > 0, f"{indexed} vs {chunks}")
 
         print("\n== 3. 两路召回都工作 ==")
-        from app.services import chat_service
+        import client.services.chat_service as chat_service
 
         with SessionLocal() as db:
             citations, blocks, best = chat_service.retrieve(
@@ -133,7 +133,7 @@ def main() -> int:
         print("\n== 4. 精确字面特征能被召回（向量的弱项）==")
         with SessionLocal() as db:
             raw = __import__(
-                "app.infrastructure.db.fts", fromlist=["search_chunks"]
+                "shared.infrastructure.db.fts", fromlist=["search_chunks"]
             ).search_chunks(db.connection(), "IV-0x1F", limit=10)
         check("全文路能命中 IV-0x1F", len(raw) >= 1, str(len(raw)))
 

@@ -27,6 +27,8 @@ Thumbs.db
 
 # AI 助手的工作目录（临时截图、脚本、会话日志，不属于项目资产）
 .workbuddy/
+.archify/
+.trae/
 
 # Playwright 导出的页面快照，调试用完即弃
 web1.yaml
