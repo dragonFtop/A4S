@@ -29,6 +29,7 @@ def _to_practice_session(row: PracticeSessionORM) -> PracticeSession:
         finished_at=row.finished_at,
         user_id=row.user_id,
         meta=dict(row.meta or {}),
+        space_id=row.space_id,
     )
 
 
@@ -57,11 +58,14 @@ class SqlAlchemyPracticeRepository:
                 answers=answers,
                 meta=session.meta,
                 user_id=session.user_id,
+                space_id=session.space_id,
                 started_at=session.started_at,
                 finished_at=session.finished_at,
             )
             self.db.add(row)
         else:
+            if row.space_id != session.space_id:
+                return
             row.status = session.status.value
             row.score = session.score
             row.questions = questions
@@ -70,20 +74,23 @@ class SqlAlchemyPracticeRepository:
             row.finished_at = session.finished_at
         self.db.commit()
 
-    def get(self, session_id: str) -> PracticeSession | None:
+    def get(self, session_id: str, space_id: str) -> PracticeSession | None:
         row = self.db.get(PracticeSessionORM, session_id)
-        return _to_practice_session(row) if row else None
+        if row is None or row.space_id != space_id:
+            return None
+        return _to_practice_session(row)
 
-    def list_recent(self, limit: int = 50) -> list[PracticeSession]:
+    def list_recent(self, space_id: str, limit: int = 50) -> list[PracticeSession]:
         rows = self.db.execute(
             select(PracticeSessionORM)
+            .where(PracticeSessionORM.space_id == space_id)
             .order_by(PracticeSessionORM.started_at.desc())
             .limit(limit)
         ).scalars()
         return [_to_practice_session(row) for row in rows]
 
-    def delete(self, session_id: str) -> None:
+    def delete(self, session_id: str, space_id: str) -> None:
         row = self.db.get(PracticeSessionORM, session_id)
-        if row is not None:
+        if row is not None and row.space_id == space_id:
             self.db.delete(row)
             self.db.commit()

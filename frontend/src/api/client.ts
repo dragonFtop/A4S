@@ -1,5 +1,46 @@
 const BASE = '/api'
 
+// ---- 登录态与当前空间 ----
+// token 存 localStorage：单机/局域网场景没有 XSS 攻击面，换取"刷新不用重登"。
+// 当前空间存另一个键，切换空间只是换一个请求头，不必重新登录。
+const TOKEN_KEY = 'a4s.token'
+const SPACE_KEY = 'a4s.space'
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token: string | null): void {
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}
+
+export function getSpaceId(): string | null {
+  return localStorage.getItem(SPACE_KEY)
+}
+
+export function setSpaceId(spaceId: string | null): void {
+  if (spaceId) localStorage.setItem(SPACE_KEY, spaceId)
+  else localStorage.removeItem(SPACE_KEY)
+}
+
+/** 所有请求共用的一组头：带上 token 与当前空间。 */
+export function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getToken()
+  const spaceId = getSpaceId()
+  if (token) headers.Authorization = `Bearer ${token}`
+  if (spaceId) headers['X-Space-Id'] = spaceId
+  return headers
+}
+
+let onUnauthorized: (() => void) | null = null
+
+/** 由 App 注册：401 时清 token 并跳登录页，避免每个页面各写一遍。 */
+export function setUnauthorizedHandler(fn: () => void): void {
+  onUnauthorized = fn
+}
+
 export class ApiError extends Error {
   status: number
   constructor(message: string, status: number) {
@@ -10,9 +51,14 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     ...init,
+    headers: { ...authHeaders(), ...(init?.headers ?? {}) },
   })
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    setToken(null)
+    onUnauthorized?.()
+    throw new ApiError('登录已过期，请重新登录', 401)
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new ApiError(body.detail ?? `请求失败（${res.status}）`, res.status)
@@ -298,7 +344,7 @@ export async function chatStream(
 ): Promise<void> {
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(body),
     signal,
   })
@@ -961,7 +1007,7 @@ export async function planStream(
 ): Promise<void> {
   const res = await fetch(`${BASE}/plan`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(body),
     signal,
   })
@@ -1003,4 +1049,72 @@ export async function planStream(
       else if (event === 'done') handlers.onDone?.()
     }
   }
+}
+
+// ---------------------------------------------------------------- 账号与空间
+
+export interface UserInfo {
+  id: string
+  username: string
+  display_name: string
+  created_at: string
+  last_login_at: string | null
+}
+
+export interface SpaceInfo {
+  id: string
+  name: string
+  kind: 'personal' | 'group'
+  owner_id: string
+  member_count: number
+  my_role: 'owner' | 'member'
+  created_at: string
+}
+
+export interface AuthResult {
+  token: string
+  user: UserInfo
+  space: SpaceInfo
+  spaces: SpaceInfo[]
+}
+
+export interface MeResult {
+  user: UserInfo
+  spaces: SpaceInfo[]
+  current_space: SpaceInfo
+}
+
+export interface MemberInfo {
+  user_id: string
+  username: string
+  display_name: string
+  role: 'owner' | 'member'
+  joined_at: string
+}
+
+export const authApi = {
+  register: (username: string, password: string, displayName = '') =>
+    apiPost<AuthResult>('/auth/register', {
+      username,
+      password,
+      display_name: displayName,
+    }),
+  login: (username: string, password: string) =>
+    apiPost<AuthResult>('/auth/login', { username, password }),
+  logout: () => apiPost<void>('/auth/logout'),
+  me: () => apiGet<MeResult>('/auth/me'),
+}
+
+export const spaceApi = {
+  list: () => apiGet<SpaceInfo[]>('/spaces'),
+  create: (name: string) => apiPost<SpaceInfo>('/spaces', { name }),
+  rename: (id: string, name: string) => apiPatch<SpaceInfo>(`/spaces/${id}`, { name }),
+  remove: (id: string) => apiDelete<void>(`/spaces/${id}`),
+  members: (id: string) => apiGet<MemberInfo[]>(`/spaces/${id}/members`),
+  addMember: (id: string, username: string) =>
+    apiPost<MemberInfo>(`/spaces/${id}/members`, { username }),
+  removeMember: (id: string, userId: string) =>
+    apiDelete<void>(`/spaces/${id}/members/${userId}`),
+  setRole: (id: string, userId: string, role: 'owner' | 'member') =>
+    apiPatch<MemberInfo>(`/spaces/${id}/members/${userId}`, { role }),
 }

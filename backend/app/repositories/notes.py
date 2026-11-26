@@ -26,6 +26,7 @@ def _to_note(row: NoteORM, tag_ids: list[str], sources: list[NoteSource]) -> Not
         updated_at=row.updated_at,
         confirmed_at=row.confirmed_at,
         user_id=row.user_id,
+        space_id=row.space_id,
     )
 
 
@@ -79,6 +80,7 @@ class SqlAlchemyNoteRepository:
                 updated_at=note.updated_at,
                 confirmed_at=note.confirmed_at,
                 user_id=note.user_id,
+                space_id=note.space_id,
             )
         )
         self.db.flush()
@@ -94,9 +96,9 @@ class SqlAlchemyNoteRepository:
             return
         fts.upsert(self.db.connection(), note.id, note.title, note.markdown)
 
-    def get(self, note_id: str) -> Note | None:
+    def get(self, note_id: str, space_id: str) -> Note | None:
         row = self.db.get(NoteORM, note_id)
-        if row is None:
+        if row is None or row.space_id != space_id:
             return None
         tags = self._tags_map([note_id]).get(note_id, [])
         sources = self._sources_map([note_id]).get(note_id, [])
@@ -104,6 +106,7 @@ class SqlAlchemyNoteRepository:
 
     def list(
         self,
+        space_id: str,
         limit: int = 100,
         offset: int = 0,
         topic_ids: list[str] | None = None,
@@ -111,7 +114,7 @@ class SqlAlchemyNoteRepository:
         status: str | None = None,
         keyword: str | None = None,
     ) -> list[Note]:
-        stmt = select(NoteORM)
+        stmt = select(NoteORM).where(NoteORM.space_id == space_id)
         if topic_ids:
             stmt = stmt.where(NoteORM.topic_id.in_(topic_ids))
         if status:
@@ -146,7 +149,7 @@ class SqlAlchemyNoteRepository:
 
     def update(self, note: Note) -> None:
         row = self.db.get(NoteORM, note.id)
-        if row is None:
+        if row is None or row.space_id != note.space_id:
             return
         row.title = note.title
         row.markdown = note.markdown
@@ -175,9 +178,9 @@ class SqlAlchemyNoteRepository:
                 )
             )
 
-    def delete(self, note_id: str) -> None:
+    def delete(self, note_id: str, space_id: str) -> None:
         row = self.db.get(NoteORM, note_id)
-        if row is not None:
+        if row is not None and row.space_id == space_id:
             self.db.execute(delete(NoteTagORM).where(NoteTagORM.note_id == note_id))
             self.db.execute(delete(NoteSourceORM).where(NoteSourceORM.note_id == note_id))
             self.db.delete(row)

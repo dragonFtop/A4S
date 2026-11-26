@@ -100,6 +100,7 @@ def plan_counts(raw: dict[QuestionType, int]) -> dict[QuestionType, int]:
 def start_generation(
     db,
     *,
+    space_id: str,
     counts: dict[QuestionType, int],
     topic_ids: list[str] | None = None,
     document_ids: list[str] | None = None,
@@ -115,7 +116,9 @@ def start_generation(
     if not topic_ids and not document_ids and not days:
         raise PracticeError("请选择出题范围：主题、资料，或最近 N 天新增")
 
-    docs = _resolve_documents(db, topic_ids=topic_ids, document_ids=document_ids, days=days)
+    docs = _resolve_documents(
+        db, space_id=space_id, topic_ids=topic_ids, document_ids=document_ids, days=days
+    )
     if not docs:
         if days:
             raise PracticeError(f"最近 {days} 天没有已完成的资料，请先导入并等待索引完成")
@@ -145,6 +148,7 @@ def start_generation(
         "started_at": datetime.now(timezone.utc).isoformat(),
         "finished_at": None,
         # 以下为内部载荷，不进接口快照
+        "_space_id": space_id,
         "_context": context,
         "_counts": planned,
         "_difficulty": difficulty,
@@ -194,6 +198,7 @@ async def run_generation(job_id: str) -> None:
 
     db = SessionLocal()
     try:
+        space_id = payload["_space_id"]
         llm = build_llm()
         context: GenerationContext = payload["_context"]
         planned: dict[QuestionType, int] = payload["_counts"]
@@ -243,6 +248,7 @@ async def run_generation(job_id: str) -> None:
             status=PracticeStatus.DRAFT,
             started_at=datetime.now(timezone.utc).replace(tzinfo=None),
             meta=meta,
+            space_id=space_id,
         )
         SqlAlchemyPracticeRepository(db).save(session)
 
@@ -291,13 +297,16 @@ def _explain(message: str) -> str:
 def _resolve_documents(
     db,
     *,
+    space_id: str,
     topic_ids: list[str] | None,
     document_ids: list[str] | None,
     days: int | None,
 ) -> list[Document]:
     """三条入口取交集；只保留已就绪的资料。"""
     repo = SqlAlchemyDocumentRepository(db)
-    docs = repo.list(limit=2000, topic_ids=list(topic_ids) if topic_ids else None)
+    docs = repo.list(
+        space_id, limit=2000, topic_ids=list(topic_ids) if topic_ids else None
+    )
 
     if document_ids:
         wanted = set(document_ids)
@@ -359,7 +368,7 @@ def _build_context(db, docs: list[Document]) -> GenerationContext:
     topic_repo = SqlAlchemyTopicRepository(db)
     names = [
         topic.name
-        for topic in topic_repo.list()
+        for topic in topic_repo.list(docs[0].space_id)
         if topic.id in {doc.topic_id for doc in docs}
     ]
     return GenerationContext(
@@ -378,21 +387,21 @@ def _sample(chunks: list, limit: int) -> list:
 # ---------- 草稿管理 ----------
 
 
-def get_session(db, session_id: str) -> PracticeSession:
-    session = SqlAlchemyPracticeRepository(db).get(session_id)
+def get_session(db, session_id: str, space_id: str) -> PracticeSession:
+    session = SqlAlchemyPracticeRepository(db).get(session_id, space_id)
     if session is None:
         raise PracticeNotFound("练习不存在或已删除")
     return session
 
 
-def list_sessions(db, limit: int = 20) -> list[PracticeSession]:
-    return SqlAlchemyPracticeRepository(db).list_recent(limit=limit)
+def list_sessions(db, space_id: str, limit: int = 20) -> list[PracticeSession]:
+    return SqlAlchemyPracticeRepository(db).list_recent(space_id, limit=limit)
 
 
-def remove_question(db, session_id: str, question_id: str) -> PracticeSession:
+def remove_question(db, session_id: str, question_id: str, space_id: str) -> PracticeSession:
     """草稿态删题。提交后题目快照是成绩的一部分，不再允许改。"""
     repo = SqlAlchemyPracticeRepository(db)
-    session = repo.get(session_id)
+    session = repo.get(session_id, space_id)
     if session is None:
         raise PracticeNotFound("练习不存在或已删除")
     if session.status is not PracticeStatus.DRAFT:
@@ -405,14 +414,14 @@ def remove_question(db, session_id: str, question_id: str) -> PracticeSession:
     return session
 
 
-def delete_session(db, session_id: str) -> None:
-    session = SqlAlchemyPracticeRepository(db).get(session_id)
+def delete_session(db, session_id: str, space_id: str) -> None:
+    session = SqlAlchemyPracticeRepository(db).get(session_id, space_id)
     if session is None:
         raise PracticeNotFound("练习不存在或已删除")
     if session.status is PracticeStatus.SUBMITTED:
         # 已提交的记录要留给错题本与回顾统计，不提供删除
         raise PracticeError("已提交的练习不能删除")
-    SqlAlchemyPracticeRepository(db).delete(session_id)
+    SqlAlchemyPracticeRepository(db).delete(session_id, space_id)
 
 
 # ---------- 作答与判分（FR-05） ----------
@@ -423,17 +432,17 @@ def _now_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _ensure_session(db, session_id: str) -> PracticeSession:
-    session = SqlAlchemyPracticeRepository(db).get(session_id)
+def _ensure_session(db, session_id: str, space_id: str) -> PracticeSession:
+    session = SqlAlchemyPracticeRepository(db).get(session_id, space_id)
     if session is None:
         raise PracticeNotFound("练习不存在或已删除")
     return session
 
 
-def start_session(db, session_id: str) -> PracticeSession:
+def start_session(db, session_id: str, space_id: str) -> PracticeSession:
     """草稿 → 作答中。幂等：重复进入不会重置进度，这是断点续答的前提。"""
     repo = SqlAlchemyPracticeRepository(db)
-    session = _ensure_session(db, session_id)
+    session = _ensure_session(db, session_id, space_id)
     if session.status is PracticeStatus.SUBMITTED:
         raise PracticeError("这套练习已经提交过了")
     if session.status is PracticeStatus.IN_PROGRESS:
@@ -451,6 +460,7 @@ def save_answer(
     db,
     session_id: str,
     question_id: str,
+    space_id: str,
     *,
     response: str = "",
     duration_seconds: float = 0.0,
@@ -462,7 +472,7 @@ def save_answer(
     只能靠不断保存进度来实现；攒到提交才写，关页面就全没了。
     """
     repo = SqlAlchemyPracticeRepository(db)
-    session = _ensure_session(db, session_id)
+    session = _ensure_session(db, session_id, space_id)
     if session.status is PracticeStatus.SUBMITTED:
         raise PracticeError("这套练习已经提交，不能再改答案")
 
@@ -493,7 +503,7 @@ def save_answer(
 
 
 def submit_session(
-    db, session_id: str, answers: list[dict]
+    db, session_id: str, answers: list[dict], space_id: str
 ) -> tuple[PracticeSession, grading.SessionScore]:
     """判分并落库，同时把答错的题写进错题本。
 
@@ -501,7 +511,7 @@ def submit_session(
     这样「答到一半关页面 → 重开只补了两题就交卷」不会把前面的答案判成未答。
     """
     repo = SqlAlchemyPracticeRepository(db)
-    session = _ensure_session(db, session_id)
+    session = _ensure_session(db, session_id, space_id)
     if session.status is PracticeStatus.SUBMITTED:
         raise PracticeError("这套练习已经提交过了")
     if not session.questions:
@@ -580,7 +590,12 @@ def submit_session(
         wrong_repo = SqlAlchemyWrongAnswerRepository(db)
         for question, response in wrongs:
             wrong_repo.upsert(
-                WrongAnswer(question=question, last_response=response, last_wrong_at=finished_at)
+                WrongAnswer(
+                    question=question,
+                    last_response=response,
+                    last_wrong_at=finished_at,
+                    space_id=space_id,
+                )
             )
     return session, score
 
@@ -604,6 +619,7 @@ def _elapsed_seconds(session: PracticeSession, records: list[AnswerRecord]) -> f
 def list_wrong_answers(
     db,
     *,
+    space_id: str,
     topic_id: str | None = None,
     document_id: str | None = None,
     question_type: str | None = None,
@@ -613,6 +629,7 @@ def list_wrong_answers(
     limit: int = 200,
 ) -> list[WrongAnswer]:
     return SqlAlchemyWrongAnswerRepository(db).list(
+        space_id,
         topic_id=topic_id,
         document_id=document_id,
         question_type=question_type,
@@ -623,14 +640,14 @@ def list_wrong_answers(
     )
 
 
-def remove_wrong_answer(db, wrong_id: str) -> None:
+def remove_wrong_answer(db, wrong_id: str, space_id: str) -> None:
     """「这题我会了」——手动移出。自动移出没有可信依据，交给用户判断。"""
-    if not SqlAlchemyWrongAnswerRepository(db).delete(wrong_id):
+    if not SqlAlchemyWrongAnswerRepository(db).delete(wrong_id, space_id):
         raise PracticeNotFound("错题不存在或已移出")
 
 
 def start_retry(
-    db, *, wrong_ids: list[str] | None = None, limit: int = 10
+    db, *, space_id: str, wrong_ids: list[str] | None = None, limit: int = 10
 ) -> PracticeSession:
     """从错题组卷重练。
 
@@ -639,7 +656,7 @@ def start_retry(
     """
     repo = SqlAlchemyWrongAnswerRepository(db)
     if wrong_ids:
-        items = repo.list_by_ids(wrong_ids)
+        items = repo.list_by_ids(wrong_ids, space_id)
         order = {wrong_id: index for index, wrong_id in enumerate(wrong_ids)}
         items.sort(key=lambda item: order.get(item.id, 10**6))
     else:
@@ -656,6 +673,7 @@ def start_retry(
         questions=questions,
         status=PracticeStatus.IN_PROGRESS,
         started_at=now,
+        space_id=space_id,
         meta={
             "kind": "retry",
             "source": "wrong_answers",
@@ -677,19 +695,19 @@ def start_retry(
     return session
 
 
-def wrong_summary(db, *, days: int | None = None) -> dict[str, Any]:
+def wrong_summary(db, *, space_id: str, days: int | None = None) -> dict[str, Any]:
     """错题聚合。
 
     「错得最多的主题」用两个数字回答：错题里有多少条，以及该主题历史作答的错误率。
     只给错题条数会骗人——只练过一个主题的人，那个主题必然排第一。
     """
-    items = SqlAlchemyWrongAnswerRepository(db).list(days=days, limit=2000)
-    topics = {topic.id: topic for topic in SqlAlchemyTopicRepository(db).list()}
+    items = SqlAlchemyWrongAnswerRepository(db).list(space_id, days=days, limit=2000)
+    topics = {topic.id: topic for topic in SqlAlchemyTopicRepository(db).list(space_id)}
 
     answered: dict[str, int] = {}
     correct: dict[str, int] = {}
     cutoff = _now_naive() - timedelta(days=days) if days else None
-    for practice in SqlAlchemyPracticeRepository(db).list_recent(limit=500):
+    for practice in SqlAlchemyPracticeRepository(db).list_recent(space_id, limit=500):
         if practice.status is not PracticeStatus.SUBMITTED:
             continue
         if cutoff is not None and practice.finished_at and practice.finished_at < cutoff:

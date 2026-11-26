@@ -102,9 +102,9 @@ def _fit(data: dict) -> dict:
 # ---------- 只读工具 ----------
 
 
-def get_progress(db) -> dict:
+def get_progress(db, space_id: str) -> dict:
     """概览统计。数字全部原样取自 StatsRepository，工具不做加减乘除。"""
-    summary = StatsRepository(db).summary()
+    summary = StatsRepository(db, space_id).summary()
     documents = summary["documents"]
     practice = summary["practice"]
     wrong = summary["wrong"]
@@ -134,21 +134,21 @@ def get_progress(db) -> dict:
     )
 
 
-def list_weak_points(db, limit: Any = 5) -> dict:
+def list_weak_points(db, space_id: str, limit: Any = 5) -> dict:
     """按主题聚合薄弱点。
 
     错误率来自 `wrong_summary`（分母是该主题历史作答数），不是拿错题条数直接排——
     只练过一个主题的人，那个主题必然排第一，这种排序没有信息量。
     """
     count = _as_int(limit, 5, 1, 10)
-    summary = practice_service.wrong_summary(db)
+    summary = practice_service.wrong_summary(db, space_id=space_id)
     buckets = summary.get("by_topic") or []
     if not buckets:
         return {"items": [], "note": "错题本还是空的，没有可分析的薄弱点"}
 
-    topics = {topic.id: topic for topic in SqlAlchemyTopicRepository(db).list()}
+    topics = {topic.id: topic for topic in SqlAlchemyTopicRepository(db).list(space_id)}
     samples: dict[str, list[dict]] = {}
-    for item in SqlAlchemyWrongAnswerRepository(db).list(sort="count", limit=300):
+    for item in SqlAlchemyWrongAnswerRepository(db).list(space_id, sort="count", limit=300):
         key = item.topic_id or UNCATEGORIZED_ID
         bucket = samples.setdefault(key, [])
         if len(bucket) < 2:
@@ -178,14 +178,14 @@ def list_weak_points(db, limit: Any = 5) -> dict:
     return _fit({"items": items, "total_weak_topics": len(buckets)})
 
 
-def list_wrong_answers(db, limit: Any = 10) -> dict:
+def list_wrong_answers(db, space_id: str, limit: Any = 10) -> dict:
     """待复习错题：题干、你的答案、正确答案、错误次数。"""
     count = _as_int(limit, 10, 1, 20)
-    rows = SqlAlchemyWrongAnswerRepository(db).list(sort="count", limit=count)
+    rows = SqlAlchemyWrongAnswerRepository(db).list(space_id, sort="count", limit=count)
     if not rows:
         return {"items": [], "note": "错题本还是空的"}
 
-    topics = {topic.id: topic.name for topic in SqlAlchemyTopicRepository(db).list()}
+    topics = {topic.id: topic.name for topic in SqlAlchemyTopicRepository(db).list(space_id)}
     items = []
     for row in rows:
         question = row.question
@@ -210,6 +210,7 @@ def list_wrong_answers(db, limit: Any = 10) -> dict:
 async def generate_practice(
     db,
     *,
+    space_id: str,
     topic_id: str | None = None,
     counts: dict[str, int] | None = None,
     difficulty: str = "medium",
@@ -237,12 +238,16 @@ async def generate_practice(
     try:
         if topic_id:
             job = practice_service.start_generation(
-                db, counts=planned, topic_ids=[topic_id], difficulty=difficulty
+                db,
+                space_id=space_id,
+                counts=planned,
+                topic_ids=[topic_id],
+                difficulty=difficulty,
             )
         else:
             # 没给主题时用最近 30 天的资料：宁可范围宽一点，也不要因为「没指定范围」直接失败
             job = practice_service.start_generation(
-                db, counts=planned, days=30, difficulty=difficulty
+                db, space_id=space_id, counts=planned, days=30, difficulty=difficulty
             )
     except practice_service.PracticeError as exc:
         raise ToolError(str(exc)) from exc
@@ -266,7 +271,9 @@ async def generate_practice(
     )
 
 
-def save_plan(db, *, markdown: str, goal: str = "", meta: dict | None = None) -> dict:
+def save_plan(
+    db, *, space_id: str, markdown: str, goal: str = "", meta: dict | None = None
+) -> dict:
     """落库。整轮唯一写操作，位置显眼、参数唯一，便于审计。"""
     text = (markdown or "").strip()
     if len(text) < MIN_PLAN_CHARS:
@@ -279,6 +286,7 @@ def save_plan(db, *, markdown: str, goal: str = "", meta: dict | None = None) ->
         markdown=text,
         goal=(goal or "")[:200],
         meta=meta or {},
+        space_id=space_id,
     )
     saved = SqlAlchemyStudyPlanRepository(db).save(plan)
     return {"plan_id": saved.id, "chars": len(text)}

@@ -31,16 +31,27 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# 与 domain/models/entities.py 的 LEGACY_SPACE_ID 保持一致：
+# 迁移时已有数据统一挂这里，首个用户注册时整批认领。
+LEGACY_SPACE_ID = "default"
+
+
 class TopicORM(Base):
     """主题与标签共用一张表，用 kind 区分。
 
     kind='topic'：资料/笔记的唯一归属（单选）
     kind='tag'  ：横向切面（多选）
+
+    主键是 (space_id, id)：主题是**空间私有**的，两个学习小组可以各自有一个
+    叫「未分类」的主题、各用同一个 id。全局唯一 id 在这里不成立。
     """
 
     __tablename__ = "topics"
-    __table_args__ = (UniqueConstraint("kind", "name", name="uq_topics_kind_name"),)
+    __table_args__ = (
+        UniqueConstraint("space_id", "kind", "name", name="uq_topics_space_kind_name"),
+    )
 
+    space_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     kind: Mapped[str] = mapped_column(String(8), nullable=False, default="topic")
@@ -54,6 +65,11 @@ class DocumentORM(Base):
     __tablename__ = "documents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+
+    # 归属空间：所有查询都必须带上它，否则会跨空间串数据
+    space_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("spaces.id"), nullable=False, default=LEGACY_SPACE_ID, index=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     ext: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -94,6 +110,11 @@ class ChunkORM(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+
+    # 归属空间：所有查询都必须带上它，否则会跨空间串数据
+    space_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("spaces.id"), nullable=False, default=LEGACY_SPACE_ID, index=True
+    )
     document_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
@@ -110,6 +131,11 @@ class NoteORM(Base):
     __table_args__ = (Index("ix_notes_topic", "topic_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+
+    # 归属空间：所有查询都必须带上它，否则会跨空间串数据
+    space_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("spaces.id"), nullable=False, default=LEGACY_SPACE_ID, index=True
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     markdown: Mapped[str] = mapped_column(Text, nullable=False, default="")
     topic_id: Mapped[str] = mapped_column(
@@ -153,6 +179,11 @@ class PracticeSessionORM(Base):
     __tablename__ = "practice_sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+
+    # 归属空间：所有查询都必须带上它，否则会跨空间串数据
+    space_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("spaces.id"), nullable=False, default=LEGACY_SPACE_ID, index=True
+    )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     questions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
@@ -168,6 +199,11 @@ class WrongAnswerORM(Base):
     __tablename__ = "wrong_answers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+
+    # 归属空间：所有查询都必须带上它，否则会跨空间串数据
+    space_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("spaces.id"), nullable=False, default=LEGACY_SPACE_ID, index=True
+    )
     question_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     topic_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
@@ -185,6 +221,11 @@ class StudyPlanORM(Base):
     __tablename__ = "study_plans"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+
+    # 归属空间：所有查询都必须带上它，否则会跨空间串数据
+    space_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("spaces.id"), nullable=False, default=LEGACY_SPACE_ID, index=True
+    )
     # 用户这次补充的学习目标，可为空
     goal: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     markdown: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -198,9 +239,81 @@ class ReviewReportORM(Base):
     __tablename__ = "review_reports"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+
+    # 归属空间：所有查询都必须带上它，否则会跨空间串数据
+    space_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("spaces.id"), nullable=False, default=LEGACY_SPACE_ID, index=True
+    )
     window_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
     period_start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     period_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     markdown: Mapped[str] = mapped_column(Text, nullable=False)
     metrics: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+
+
+# ---------------------------------------------------------------- 用户与空间
+
+
+class UserORM(Base):
+    """登录账号。password_hash 是 scrypt 派生串，明文不落库。"""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    display_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AuthTokenORM(Base):
+    """会话 token。
+
+    没有用 JWT：token 存库才能"退出即失效"、才能看到谁在线。
+    个人项目的代价只是每次请求多一次 SQLite 主键查询。
+    """
+
+    __tablename__ = "auth_tokens"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class SpaceORM(Base):
+    """空间：个人空间（注册时自动建）或学习小组（手动建）。
+
+    团队不另建模型，直接复用这个容器——把别人加进个人空间就变成了小组。
+    """
+
+    __tablename__ = "spaces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="personal")
+    owner_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+
+
+class SpaceMemberORM(Base):
+    """空间成员。role 只有 owner / member，唯一 owner 不可移除。"""
+
+    __tablename__ = "space_members"
+
+    space_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("spaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="member")
+    joined_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)

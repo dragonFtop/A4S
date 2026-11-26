@@ -38,7 +38,8 @@ if TEST_DB.exists():
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.main import app  # noqa: E402
+from app.main import app
+from scripts._auth import login  # noqa: E402
 
 PASSED: list[str] = []
 FAILED: list[str] = []
@@ -206,6 +207,7 @@ def new_session(client: TestClient, topic_id: str, counts: dict[str, int]) -> di
 
 def main() -> int:
     with TestClient(app) as client:
+        login(client)
         print("\n== 1. 空库生成提示性报告 ==")
         empty = client.post("/api/reviews", json={"window_days": 7})
         check("空库不报错", empty.status_code == 201, empty.text[:200])

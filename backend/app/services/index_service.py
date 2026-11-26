@@ -73,7 +73,8 @@ def index_status(db) -> dict[str, Any]:
     store = get_vector_store()
     index_dimension = store.index_dimension() if VEC_ENABLED else None
     vector_count = store.count() if VEC_ENABLED else 0
-    chunk_count = SqlAlchemyChunkRepository(db).count()
+    # 全局口径：向量表不按空间分，按空间比会永远对不上
+    chunk_count = SqlAlchemyChunkRepository(db).count_all()
 
     configured = settings.embedding_dimension
     # 还没有索引表（空库首启）不算不一致：下一次入库会按配置建表
@@ -152,13 +153,13 @@ def run_rebuild() -> None:
         store.reset()
 
         repo = SqlAlchemyChunkRepository(db)
-        total = repo.count()
+        total = repo.count_all()
         _set_job(total=total, message=f"正在重新向量化 {total} 个片段…")
 
         offset = 0
         done = 0
         while True:
-            page = repo.list_all(limit=PAGE_SIZE, offset=offset)
+            page = repo.iter_all_chunks(limit=PAGE_SIZE, offset=offset)
             if not page:
                 break
             for start in range(0, len(page), EMBED_BATCH):

@@ -1,4 +1,8 @@
-"""资料仓储：元信息、标签关联、主题迁移与删除级联。"""
+"""资料仓储：元信息、标签关联、主题迁移与删除级联。
+
+所有读写都带 `space_id`：不是可选参数，是必填。漏传会直接 TypeError，
+而不是悄悄返回全量数据——**串数据的代价比一次报错高得多**。
+"""
 
 from __future__ import annotations
 
@@ -26,6 +30,7 @@ def _to_document(row: DocumentORM, tag_ids: list[str] | None = None) -> Document
         tag_ids=tag_ids or [],
         storage_path=row.storage_path,
         user_id=row.user_id,
+        space_id=row.space_id,
     )
 
 
@@ -46,8 +51,8 @@ class SqlAlchemyDocumentRepository:
             result.setdefault(doc_id, []).append(tag_id)
         return result
 
-    def _filtered(self, topic_ids, tag_ids, status, keyword):
-        stmt = select(DocumentORM)
+    def _filtered(self, space_id: str, topic_ids, tag_ids, status, keyword):
+        stmt = select(DocumentORM).where(DocumentORM.space_id == space_id)
         if topic_ids:
             stmt = stmt.where(DocumentORM.topic_id.in_(topic_ids))
         if status is not None:
@@ -74,6 +79,7 @@ class SqlAlchemyDocumentRepository:
                 topic_id=document.topic_id,
                 storage_path=document.storage_path,
                 user_id=document.user_id,
+                space_id=document.space_id,
                 created_at=document.created_at,
                 ready_at=document.ready_at,
             )
@@ -82,14 +88,15 @@ class SqlAlchemyDocumentRepository:
         self.set_tags(document.id, document.tag_ids, commit=False)
         self.db.commit()
 
-    def get(self, document_id: str) -> Document | None:
+    def get(self, document_id: str, space_id: str) -> Document | None:
         row = self.db.get(DocumentORM, document_id)
-        if row is None:
+        if row is None or row.space_id != space_id:
             return None
         return _to_document(row, self._tags_map([document_id]).get(document_id, []))
 
     def list(
         self,
+        space_id: str,
         limit: int = 100,
         offset: int = 0,
         topic_ids: list[str] | None = None,
@@ -98,7 +105,7 @@ class SqlAlchemyDocumentRepository:
         keyword: str | None = None,
     ) -> list[Document]:
         stmt = (
-            self._filtered(topic_ids, tag_ids, status, keyword)
+            self._filtered(space_id, topic_ids, tag_ids, status, keyword)
             .order_by(DocumentORM.created_at.desc())
             .limit(limit)
             .offset(offset)
@@ -109,11 +116,16 @@ class SqlAlchemyDocumentRepository:
 
     def count(
         self,
+        space_id: str,
         topic_ids: list[str] | None = None,
         tag_ids: list[str] | None = None,
         status: DocumentStatus | None = None,
     ) -> int:
-        stmt = select(func.count()).select_from(DocumentORM)
+        stmt = (
+            select(func.count())
+            .select_from(DocumentORM)
+            .where(DocumentORM.space_id == space_id)
+        )
         if topic_ids:
             stmt = stmt.where(DocumentORM.topic_id.in_(topic_ids))
         if status is not None:
@@ -126,7 +138,7 @@ class SqlAlchemyDocumentRepository:
 
     def update(self, document: Document) -> None:
         row = self.db.get(DocumentORM, document.id)
-        if row is None:
+        if row is None or row.space_id != document.space_id:
             return
         row.name = document.name
         row.status = document.status.value
@@ -142,9 +154,14 @@ class SqlAlchemyDocumentRepository:
         status: DocumentStatus,
         chunk_count: int | None = None,
         error: str | None = None,
+        *,
+        space_id: str | None = None,
     ) -> None:
+        """后台任务按 id 更新状态，空间校验交给调用方（它刚创建这条记录）。"""
         row = self.db.get(DocumentORM, document_id)
         if row is None:
+            return
+        if space_id is not None and row.space_id != space_id:
             return
         row.status = status.value
         if chunk_count is not None:
@@ -154,9 +171,9 @@ class SqlAlchemyDocumentRepository:
             row.ready_at = datetime.now(timezone.utc)
         self.db.commit()
 
-    def set_topic(self, document_id: str, topic_id: str) -> None:
+    def set_topic(self, document_id: str, topic_id: str, space_id: str) -> None:
         row = self.db.get(DocumentORM, document_id)
-        if row is None:
+        if row is None or row.space_id != space_id:
             return
         row.topic_id = topic_id
         # chunk 的分区键必须跟着改，否则按主题检索会漏
@@ -167,22 +184,26 @@ class SqlAlchemyDocumentRepository:
         self.db.commit()
 
     def set_tags(self, document_id: str, tag_ids: list[str], commit: bool = True) -> None:
+        # 关联表不带 space_id：document_id 已经限定了归属
         self.db.execute(delete(DocumentTagORM).where(DocumentTagORM.document_id == document_id))
         for tag_id in dict.fromkeys(tag_ids):  # 去重保序
             self.db.add(DocumentTagORM(document_id=document_id, tag_id=tag_id))
         if commit:
             self.db.commit()
 
-    def list_ids_by_topic(self, topic_id: str) -> list[str]:
+    def list_ids_by_topic(self, topic_id: str, space_id: str) -> list[str]:
         rows = self.db.execute(
-            select(DocumentORM.id).where(DocumentORM.topic_id == topic_id)
+            select(DocumentORM.id).where(
+                DocumentORM.topic_id == topic_id, DocumentORM.space_id == space_id
+            )
         ).scalars()
         return list(rows)
 
-    def delete(self, document_id: str) -> None:
+    def delete(self, document_id: str, space_id: str) -> None:
         row = self.db.get(DocumentORM, document_id)
-        if row is not None:
-            self.db.execute(delete(DocumentTagORM).where(DocumentTagORM.document_id == document_id))
-            self.db.execute(delete(ChunkORM).where(ChunkORM.document_id == document_id))
-            self.db.delete(row)
-            self.db.commit()
+        if row is None or row.space_id != space_id:
+            return
+        self.db.execute(delete(DocumentTagORM).where(DocumentTagORM.document_id == document_id))
+        self.db.execute(delete(ChunkORM).where(ChunkORM.document_id == document_id))
+        self.db.delete(row)
+        self.db.commit()

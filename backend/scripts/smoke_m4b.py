@@ -31,7 +31,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.config import settings  # noqa: E402
 from app.domain.models.entities import Question, QuestionType  # noqa: E402
-from app.main import app  # noqa: E402
+from app.main import app
+from scripts._auth import login  # noqa: E402
 from app.services import grading  # noqa: E402
 
 PASSED: list[str] = []
@@ -249,6 +250,8 @@ def main() -> int:
     check("正确数与作答数分开统计", score.correct == 1 and score.answered == 1, str(score))
 
     with TestClient(app) as client:
+
+        login(client)
         from app.services import practice_service
 
         print("\n== 2. 准备资料 ==")

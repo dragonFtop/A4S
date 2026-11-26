@@ -72,6 +72,7 @@ def retrieve(
     db,
     question: str,
     *,
+    space_id: str,
     topic_id: str | None = None,
     tag_ids: list[str] | None = None,
     document_ids: list[str] | None = None,
@@ -91,7 +92,7 @@ def retrieve(
         doc_ids: list[str] = list(dict.fromkeys(document_ids or []))
         if tag_ids:
             # 标签 → 资料 → 片段：多标签取并集（任一标签命中即算相关）
-            tagged = doc_repo.list(tag_ids=tag_ids, limit=500)
+            tagged = doc_repo.list(space_id, tag_ids=tag_ids, limit=500)
             doc_ids.extend(doc.id for doc in tagged)
         allowed = set()
         for doc_id in dict.fromkeys(doc_ids):
@@ -101,7 +102,9 @@ def retrieve(
 
     vector = _embed_query(question)
     hits = store.search(vector, top_k=TOP_K, topic_id=topic_id, allowed_chunk_ids=allowed)
-    best = max((1.0 - distance for _, distance in hits), default=0.0)
+    # 注意：best 必须在**空间过滤之后**才算。原始 hits 里混着别的空间的高分片段，
+    # 拿它判断"这条问题有没有依据"会误判（bob 会拿到 alice 资料的分数）。
+    best = 0.0
 
     names: dict[str, str | None] = {}
 
@@ -109,7 +112,7 @@ def retrieve(
         if document_id is None:
             return None
         if document_id not in names:
-            doc = doc_repo.get(document_id)
+            doc = doc_repo.get(document_id, space_id)
             names[document_id] = doc.name if doc else None
         return names[document_id]
 
@@ -117,11 +120,13 @@ def retrieve(
     blocks: list[str] = []
     used = 0
     for chunk_id, distance in hits:
-        if 1.0 - distance < MIN_SIMILARITY:
+        similarity = 1.0 - distance
+        if similarity < MIN_SIMILARITY:
             continue
-        chunk = chunk_repo.get(chunk_id)
+        chunk = chunk_repo.get(chunk_id, space_id)
         if chunk is None:
             continue
+        best = max(best, similarity)
         block = chunk.text.strip()
         if used + len(block) > MAX_CONTEXT_CHARS:
             break
@@ -187,7 +192,7 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
         history = _trim_history(payload.get("history") or [])
 
         chunk_repo = SqlAlchemyChunkRepository(db)
-        if chunk_repo.count() == 0:
+        if chunk_repo.count(payload["space_id"]) == 0:
             # 三种"没找到"里最干净的一种：库里确实一条片段都没有。
             # 仍然作答，但声明必须写清楚"一句资料都没用上"，否则用户会以为回答有出处。
             yield _event(
@@ -215,6 +220,7 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
         citations, blocks, best = retrieve(
             db,
             payload["question"],
+            space_id=payload["space_id"],
             topic_id=payload.get("topic_id"),
             tag_ids=payload.get("tag_ids") or [],
             document_ids=payload.get("document_ids") or [],

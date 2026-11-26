@@ -26,7 +26,8 @@ if TEST_DB.exists():
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.main import app  # noqa: E402
+from app.main import app
+from scripts._auth import login  # noqa: E402
 
 PASSED: list[str] = []
 FAILED: list[str] = []
@@ -43,6 +44,7 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 
 def main() -> int:
     with TestClient(app) as client:
+        login(client)
         print("\n== 1. 内置主题与预置包 ==")
         r = client.get("/api/topics")
         body = r.json()

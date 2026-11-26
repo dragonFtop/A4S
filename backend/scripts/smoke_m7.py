@@ -38,7 +38,8 @@ from app.infrastructure.db.models import (  # noqa: E402
     WrongAnswerORM,
 )
 from app.infrastructure.db.session import SessionLocal  # noqa: E402
-from app.main import app  # noqa: E402
+from app.main import app
+from scripts._auth import login  # noqa: E402
 from app.repositories._converters import question_to_dict  # noqa: E402
 from app.services import plan_agent, plan_tools, practice_service  # noqa: E402
 
@@ -161,12 +162,20 @@ def run_plan(client: TestClient, replies: list[str], goal: str = "") -> tuple[li
         practice_service.build_llm = original_practice
 
 
-def seed() -> None:
-    """造一份资料、一套已提交练习、一道错题：够 Agent 走完整条路径。"""
+def seed(space_id: str) -> None:
+    """造一份资料、一套已提交练习、一道错题：够 Agent 走完整条路径。
+
+    所有行都要带 space_id：数据现在是空间私有的，漏了就会落到占位空间，
+    当前用户看不到，Agent 会以为"库里什么都没有"。
+    """
     db = SessionLocal()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     try:
-        db.add(TopicORM(id="t-plan", name="密码学", kind="topic", color="#534AB7"))
+        db.add(
+            TopicORM(
+                space_id=space_id, id="t-plan", name="密码学", kind="topic", color="#534AB7"
+            )
+        )
         db.add(
             DocumentORM(
                 id="d-plan",
@@ -176,6 +185,7 @@ def seed() -> None:
                 status="ready",
                 chunk_count=1,
                 topic_id="t-plan",
+                space_id=space_id,
             )
         )
         db.add(
@@ -185,6 +195,7 @@ def seed() -> None:
                 chunk_index=0,
                 text=MATERIAL,
                 topic_id="t-plan",
+                space_id=space_id,
             )
         )
 
@@ -210,6 +221,7 @@ def seed() -> None:
                 questions=[question_to_dict(question)],
                 answers=[{"question_id": "q-plan-1", "response": "B", "is_correct": False}],
                 meta={"result": {"total": 1, "correct": 0}},
+                space_id=space_id,
                 started_at=now - timedelta(hours=2),
                 finished_at=now - timedelta(hours=1),
             )
@@ -223,6 +235,7 @@ def seed() -> None:
                 question=question_to_dict(question),
                 wrong_count=3,
                 last_response="B",
+                space_id=space_id,
                 first_wrong_at=now - timedelta(days=3),
                 last_wrong_at=now - timedelta(hours=1),
             )
@@ -237,13 +250,16 @@ def main() -> int:
     settings.llm_api_key = settings.llm_api_key or "test-key"
 
     with TestClient(app) as client:
+
+        login(client)
         print("\n== 1. 空数据不出计划 ==")
         events, fake = run_plan(client, [])
         names = [name for name, _ in events]
         check("空库返回 no_data", names == ["no_data"], str(names))
         check("空库不调用模型", not fake.calls)
 
-        seed()
+        space_id = client.get("/api/auth/me").json()["current_space"]["id"]
+        seed(space_id)
 
         print("\n== 2. 未配置 Key ==")
         saved_key = settings.llm_api_key

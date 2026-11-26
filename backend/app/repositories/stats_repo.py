@@ -2,6 +2,9 @@
 
 概览页需要跨多张表聚合，这属于"查询侧"职责，不适合塞进领域实体，
 因此单独放在仓储层的只读实现里；接口层只消费返回值，不碰 ORM。
+
+**所有聚合都限定在一个空间内**：概览显示的是"这个小组的学习情况"，
+不是"整台机器上所有人的数据"。
 """
 
 from __future__ import annotations
@@ -20,7 +23,6 @@ from app.infrastructure.db.models import (
     TopicORM,
     WrongAnswerORM,
 )
-
 
 
 def _utcnow_naive() -> datetime:
@@ -51,13 +53,14 @@ def _local_date_key(value: datetime | None) -> str:
 
 
 class StatsRepository:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, space_id: str) -> None:
         self.db = db
+        self.space_id = space_id
 
     # ---- 内部工具 ----
 
     def _count(self, model, *clauses) -> int:
-        stmt = select(func.count()).select_from(model)
+        stmt = select(func.count()).select_from(model).where(model.space_id == self.space_id)
         for clause in clauses:
             stmt = stmt.where(clause)
         return int(self.db.execute(stmt).scalar() or 0)
@@ -71,15 +74,23 @@ class StatsRepository:
     def summary(self) -> dict:
         now = _utcnow_naive()
         week_ago = now - timedelta(days=7)
+        space = self.space_id
 
         chunk_total = int(
-            self._scalar(select(func.coalesce(func.sum(DocumentORM.chunk_count), 0)))
+            self._scalar(
+                select(func.coalesce(func.sum(DocumentORM.chunk_count), 0)).where(
+                    DocumentORM.space_id == space
+                )
+            )
         )
         # 状态值以 PracticeStatus 为准（"submitted"）；早期这里误写成 "finished"，
         # 导致概览页的完成套数与平均正确率恒为 0。
         finished = PracticeSessionORM.status == PracticeStatus.SUBMITTED.value
         avg_score = self._scalar(
-            select(func.avg(PracticeSessionORM.score)).where(finished), default=0.0
+            select(func.avg(PracticeSessionORM.score)).where(
+                PracticeSessionORM.space_id == space, finished
+            ),
+            default=0.0,
         )
 
         return {
@@ -103,10 +114,17 @@ class StatsRepository:
             },
             "wrong": {
                 "total": self._count(WrongAnswerORM),
-                "added_last_7d": self._count(WrongAnswerORM, WrongAnswerORM.last_wrong_at >= week_ago),
+                "added_last_7d": self._count(
+                    WrongAnswerORM, WrongAnswerORM.last_wrong_at >= week_ago
+                ),
                 "top_repeated": int(
                     self._scalar(
-                        select(func.count()).select_from(WrongAnswerORM).where(WrongAnswerORM.wrong_count >= 2)
+                        select(func.count())
+                        .select_from(WrongAnswerORM)
+                        .where(
+                            WrongAnswerORM.space_id == space,
+                            WrongAnswerORM.wrong_count >= 2,
+                        )
                     )
                 ),
             },
@@ -141,7 +159,10 @@ class StatsRepository:
             buckets[key] = {"documents": 0, "practices": 0}
 
         for (created_at,) in self.db.execute(
-            select(DocumentORM.created_at).where(DocumentORM.created_at >= start)
+            select(DocumentORM.created_at).where(
+                DocumentORM.space_id == self.space_id,
+                DocumentORM.created_at >= start,
+            )
         ):
             key = _local_date_key(created_at)
             if key in buckets:
@@ -149,6 +170,7 @@ class StatsRepository:
 
         for (finished_at,) in self.db.execute(
             select(PracticeSessionORM.finished_at).where(
+                PracticeSessionORM.space_id == self.space_id,
                 PracticeSessionORM.finished_at.is_not(None),
                 PracticeSessionORM.finished_at >= start,
             )
@@ -163,6 +185,7 @@ class StatsRepository:
         rows = self.db.execute(
             select(DocumentORM, TopicORM)
             .outerjoin(TopicORM, TopicORM.id == DocumentORM.topic_id)
+            .where(DocumentORM.space_id == self.space_id)
             .order_by(DocumentORM.created_at.desc())
             .limit(limit)
         ).all()
@@ -185,7 +208,10 @@ class StatsRepository:
 
     def _recent_wrong(self, limit: int) -> list[dict]:
         rows = self.db.execute(
-            select(WrongAnswerORM).order_by(WrongAnswerORM.last_wrong_at.desc()).limit(limit)
+            select(WrongAnswerORM)
+            .where(WrongAnswerORM.space_id == self.space_id)
+            .order_by(WrongAnswerORM.last_wrong_at.desc())
+            .limit(limit)
         ).scalars()
         items = []
         for row in rows:
@@ -205,7 +231,10 @@ class StatsRepository:
 
     def _recent_reports(self, limit: int) -> list[dict]:
         rows = self.db.execute(
-            select(ReviewReportORM).order_by(ReviewReportORM.created_at.desc()).limit(limit)
+            select(ReviewReportORM)
+            .where(ReviewReportORM.space_id == self.space_id)
+            .order_by(ReviewReportORM.created_at.desc())
+            .limit(limit)
         ).scalars()
         return [
             {
@@ -221,9 +250,13 @@ class StatsRepository:
     def _activity(self, limit: int) -> list[dict]:
         """把三类事件合成一条时间线，按时间倒序。"""
         events: list[dict] = []
+        space = self.space_id
 
         for row in self.db.execute(
-            select(DocumentORM).order_by(DocumentORM.created_at.desc()).limit(limit)
+            select(DocumentORM)
+            .where(DocumentORM.space_id == space)
+            .order_by(DocumentORM.created_at.desc())
+            .limit(limit)
         ).scalars():
             events.append(
                 {
@@ -236,7 +269,10 @@ class StatsRepository:
 
         for row in self.db.execute(
             select(PracticeSessionORM)
-            .where(PracticeSessionORM.finished_at.is_not(None))
+            .where(
+                PracticeSessionORM.space_id == space,
+                PracticeSessionORM.finished_at.is_not(None),
+            )
             .order_by(PracticeSessionORM.finished_at.desc())
             .limit(limit)
         ).scalars():
@@ -251,7 +287,10 @@ class StatsRepository:
             )
 
         for row in self.db.execute(
-            select(ReviewReportORM).order_by(ReviewReportORM.created_at.desc()).limit(limit)
+            select(ReviewReportORM)
+            .where(ReviewReportORM.space_id == space)
+            .order_by(ReviewReportORM.created_at.desc())
+            .limit(limit)
         ).scalars():
             events.append(
                 {

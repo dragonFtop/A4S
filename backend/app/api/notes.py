@@ -13,6 +13,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from sqlalchemy.orm import Session
 
 from app.domain.models.entities import Note, NoteSourceType, NoteStatus, NoteTemplate
+from app.api.deps import get_current_space
+from app.domain.models.entities import Space
 from app.infrastructure.db.session import get_db
 from app.repositories.sqlalchemy_repo import SqlAlchemyTopicRepository
 from app.schemas.common import TopicBrief
@@ -37,10 +39,10 @@ router = APIRouter(prefix="/notes", tags=["notes"])
 _MARK = re.compile(r"\[\[chunk:([A-Za-z0-9\-]+)\]\]")
 
 
-def _topics(db: Session) -> dict[str, TopicBrief]:
+def _topics(db: Session, space_id: str) -> dict[str, TopicBrief]:
     return {
         t.id: TopicBrief(id=t.id, name=t.name, color=t.color)
-        for t in SqlAlchemyTopicRepository(db).list()
+        for t in SqlAlchemyTopicRepository(db).list(space_id)
     }
 
 
@@ -205,12 +207,14 @@ def list_notes(
     tag_ids: str | None = Query(default=None, description="逗号分隔，多选取交集"),
     status: str | None = Query(default=None),
     keyword: str | None = Query(default=None),
+    space: Space = Depends(get_current_space),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> NoteListOut:
     notes = note_service.list_notes(
         db,
+        space_id=space.id,
         topic_ids=_split(topic_ids),
         tag_ids=_split(tag_ids),
         status=status if status in ("draft", "confirmed") else None,
@@ -218,16 +222,21 @@ def list_notes(
         limit=limit,
         offset=offset,
     )
-    topics = _topics(db)
+    topics = _topics(db, space.id)
     probe = (keyword or "").strip() or None
     return NoteListOut(items=[_brief(note, topics, probe) for note in notes], total=len(notes))
 
 
 @router.post("", response_model=NoteOut, status_code=201)
-def create_note(payload: NoteCreate, db: Session = Depends(get_db)) -> NoteOut:
+def create_note(
+    payload: NoteCreate,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> NoteOut:
     try:
         note = note_service.create(
             db,
+            space_id=space.id,
             title=payload.title,
             topic_id=payload.topic_id,
             tag_ids=payload.tag_ids,
@@ -237,24 +246,34 @@ def create_note(payload: NoteCreate, db: Session = Depends(get_db)) -> NoteOut:
         )
     except NoteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _full(note, _topics(db))
+    return _full(note, _topics(db, space.id))
 
 
 @router.get("/{note_id}", response_model=NoteOut)
-def get_note(note_id: str, db: Session = Depends(get_db)) -> NoteOut:
+def get_note(
+    note_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> NoteOut:
     try:
-        note = note_service.get(db, note_id)
+        note = note_service.get(db, note_id, space.id)
     except NoteNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _full(note, _topics(db))
+    return _full(note, _topics(db, space.id))
 
 
 @router.patch("/{note_id}", response_model=NoteOut)
-def update_note(note_id: str, payload: NoteUpdate, db: Session = Depends(get_db)) -> NoteOut:
+def update_note(
+    note_id: str,
+    payload: NoteUpdate,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> NoteOut:
     try:
         note = note_service.update(
             db,
             note_id,
+            space_id=space.id,
             title=payload.title,
             markdown=payload.markdown,
             topic_id=payload.topic_id,
@@ -265,23 +284,31 @@ def update_note(note_id: str, payload: NoteUpdate, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except NoteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _full(note, _topics(db))
+    return _full(note, _topics(db, space.id))
 
 
 @router.post("/{note_id}/confirm", response_model=NoteOut)
-def confirm_note(note_id: str, db: Session = Depends(get_db)) -> NoteOut:
+def confirm_note(
+    note_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> NoteOut:
     try:
-        note = note_service.confirm(db, note_id)
+        note = note_service.confirm(db, note_id, space.id)
     except NoteNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except NoteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _full(note, _topics(db))
+    return _full(note, _topics(db, space.id))
 
 
 @router.delete("/{note_id}")
-def delete_note(note_id: str, db: Session = Depends(get_db)) -> dict:
-    note_service.delete(db, note_id)
+def delete_note(
+    note_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> dict:
+    note_service.delete(db, note_id, space.id)
     return {"deleted": note_id}
 
 
@@ -290,13 +317,17 @@ def delete_note(note_id: str, db: Session = Depends(get_db)) -> dict:
 
 @router.post("/draft", response_model=DraftJobOut, status_code=202)
 def draft(
-    payload: DraftIn, background: BackgroundTasks, db: Session = Depends(get_db)
+    payload: DraftIn,
+    background: BackgroundTasks,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
 ) -> DraftJobOut:
     if not payload.document_ids and not payload.topic_id:
         raise HTTPException(status_code=400, detail="请选择资料或主题作为整理范围")
     try:
         job = note_service.start_draft(
             db,
+            space_id=space.id,
             template=NoteTemplate(payload.template),
             document_ids=payload.document_ids,
             topic_id=payload.topic_id,
@@ -325,6 +356,7 @@ def regenerate(
     try:
         job = note_service.start_draft(
             db,
+            space_id=space.id,
             template=NoteTemplate(payload.template),
             document_ids=payload.document_ids,
             topic_id=payload.topic_id,
@@ -350,10 +382,14 @@ def draft_status(job_id: str) -> DraftJobOut:
 
 
 @router.get("/{note_id}/export")
-def export_note(note_id: str, db: Session = Depends(get_db)) -> Response:
+def export_note(
+    note_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> Response:
     """下载 Markdown 文件。来源角标转 [序号]，文末附来源清单。"""
     try:
-        note = note_service.get(db, note_id)
+        note = note_service.get(db, note_id, space.id)
     except NoteNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -372,18 +408,23 @@ def export_note(note_id: str, db: Session = Depends(get_db)) -> Response:
 
 
 @router.get("/{note_id}/sources/{chunk_id}", response_model=NoteSourceOut)
-def source_detail(note_id: str, chunk_id: str, db: Session = Depends(get_db)) -> NoteSourceOut:
+def source_detail(
+    note_id: str,
+    chunk_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> NoteSourceOut:
     """角标二次点击时取完整原文（列表里的 snippet 只有 240 字）。"""
     from app.repositories.sqlalchemy_repo import (
         SqlAlchemyChunkRepository,
         SqlAlchemyDocumentRepository,
     )
 
-    chunk = SqlAlchemyChunkRepository(db).get(chunk_id)
+    chunk = SqlAlchemyChunkRepository(db).get(chunk_id, space.id)
     if chunk is None:
         raise HTTPException(status_code=404, detail="来源片段已随资料删除")
-    doc = SqlAlchemyDocumentRepository(db).get(chunk.document_id)
-    note = note_service.get(db, note_id)
+    doc = SqlAlchemyDocumentRepository(db).get(chunk.document_id, space.id)
+    note = note_service.get(db, note_id, space.id)
     index = next(
         (i for i, s in enumerate(note.sources, start=1) if s.chunk_id == chunk_id), 1
     )

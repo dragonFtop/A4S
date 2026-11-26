@@ -10,9 +10,11 @@ POST /api/chat 返回 SSE 流：
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from app.api.deps import get_current_space
+from app.domain.models.entities import Space
 from app.schemas.chat import ChatIn
 from app.services import chat_service
 
@@ -26,8 +28,11 @@ _SSE_HEADERS = {
 
 
 @router.post("")
-async def ask(payload: ChatIn) -> StreamingResponse:
+async def ask(
+    payload: ChatIn, space: Space = Depends(get_current_space)
+) -> StreamingResponse:
     body = payload.model_dump()
+    body["space_id"] = space.id
     return StreamingResponse(
         chat_service.sse_chat(body),
         media_type="text/event-stream",

@@ -31,7 +31,8 @@ if TEST_DB.exists():
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.main import app  # noqa: E402
+from app.main import app
+from scripts._auth import login  # noqa: E402
 
 PASSED: list[str] = []
 FAILED: list[str] = []
@@ -145,6 +146,7 @@ def patch_llm(monkeypatch_target, fake: FakeLLM) -> None:
 
 def main() -> int:
     with TestClient(app) as client:
+        login(client)
         from app.services import practice_service
 
         print("\n== 1. 参数与范围校验 ==")

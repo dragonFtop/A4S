@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import {
   BookOpen,
   CalendarClock,
@@ -11,10 +11,13 @@ import {
   Moon,
   NotebookPen,
   Settings2,
+  LogOut,
   Sun,
+  Users,
 } from 'lucide-react'
 import { getHealth, getOverview, type Health } from '../api/client'
 import { useTheme } from '../hooks/useTheme'
+import { useSpace } from '../context/SpaceContext'
 
 const NAV_GROUPS = [
   {
@@ -33,6 +36,10 @@ const NAV_GROUPS = [
     title: '记录',
     items: [{ to: '/review', label: '回顾', icon: CalendarClock, count: null }],
   },
+  {
+    title: '协作',
+    items: [{ to: '/spaces', label: '空间', icon: Users, count: null }],
+  },
 ]
 
 const TITLES: Record<string, string> = {
@@ -44,6 +51,7 @@ const TITLES: Record<string, string> = {
   '/wrong': '错题本',
   '/plan': '计划',
   '/review': '回顾',
+  '/spaces': '空间与成员',
   '/settings': '设置',
 }
 
@@ -55,6 +63,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [counts, setCounts] = useState<{ library?: number; wrong?: number; notes?: number }>({})
   const { theme, toggle } = useTheme()
   const location = useLocation()
+  const { user, spaces, current, switchTo, logout } = useSpace()
 
   useEffect(() => {
     getHealth()
@@ -109,6 +118,42 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
+        <details className="space-switch">
+          <summary>
+            <span className="space-icon">
+              {current?.kind === 'group' ? <Users size={14} /> : <FileText size={14} />}
+            </span>
+            <span className="space-switch-text">
+              <span className="space-switch-name">{current?.name ?? '未选择空间'}</span>
+              <span className="space-switch-kind">
+                {current?.kind === 'group'
+                  ? `小组 · ${current.member_count} 人`
+                  : '个人空间'}
+              </span>
+            </span>
+          </summary>
+          <div className="space-menu">
+            {spaces.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={item.id === current?.id ? 'space-menu-item active' : 'space-menu-item'}
+                onClick={() => {
+                  if (item.id !== current?.id) switchTo(item.id)
+                }}
+              >
+                <span className="truncate">{item.name}</span>
+                <span className="space-menu-kind">
+                  {item.kind === 'group' ? `${item.member_count} 人` : '个人'}
+                </span>
+              </button>
+            ))}
+            <Link className="space-menu-manage" to="/spaces">
+              管理空间与成员
+            </Link>
+          </div>
+        </details>
+
         <nav className="nav-groups" aria-label="主导航">
           {NAV_GROUPS.map((group) => (
             <div key={group.title} className="nav-group">
@@ -147,6 +192,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             <span>{theme === 'dark' ? '浅色模式' : '深色模式'}</span>
           </button>
+
+          <div className="rail-user">
+            <span className="avatar small">
+              {(user?.display_name || user?.username || '?').slice(0, 1)}
+            </span>
+            <span className="rail-user-name truncate">
+              {user?.display_name || user?.username}
+            </span>
+            <button
+              type="button"
+              className="icon-btn"
+              title="退出登录"
+              onClick={() => void logout()}
+            >
+              <LogOut size={15} />
+            </button>
+          </div>
 
           <div className="rail-status">
             <span className={online ? 'dot dot-ok' : 'dot'} />

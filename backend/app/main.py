@@ -19,12 +19,15 @@ from app.infrastructure.db.session import init_db
 async def lifespan(app: FastAPI):
     (DATA_DIR / "uploads").mkdir(parents=True, exist_ok=True)
     init_db()
-    # 内置「未分类」主题必须存在，documents.topic_id 的默认值指向它
+    # 每个空间都要有「未分类」主题；新增的空间在创建时就建好了，这里兜底补历史数据
     from app.infrastructure.db.seed import ensure_builtin
     from app.infrastructure.db.session import SessionLocal
+    from app.infrastructure.db.models import SpaceORM
 
     with SessionLocal() as db:
-        ensure_builtin(db)
+        for (space_id,) in db.query(SpaceORM.id).all():
+            ensure_builtin(db, space_id)
+        db.commit()
 
     # 定时回顾：按 scheduler_enabled 决定是否装载任务
     from app.infrastructure import scheduler

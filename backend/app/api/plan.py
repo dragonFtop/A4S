@@ -18,6 +18,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.domain.models.entities import StudyPlan
+from app.api.deps import get_current_space
+from app.domain.models.entities import Space
 from app.infrastructure.db.session import get_db
 from app.repositories.sqlalchemy_repo import SqlAlchemyStudyPlanRepository
 from app.schemas.plan import PlanBrief, PlanDetail, PlanIn, PlanMetaOut
@@ -61,9 +63,13 @@ def _brief(plan: StudyPlan) -> PlanBrief:
 
 
 @router.post("")
-async def create_plan(payload: PlanIn) -> StreamingResponse:
+async def create_plan(
+    payload: PlanIn, space: Space = Depends(get_current_space)
+) -> StreamingResponse:
+    body = payload.model_dump()
+    body["space_id"] = space.id
     return StreamingResponse(
-        plan_agent.sse_plan(payload.model_dump()),
+        plan_agent.sse_plan(body),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -87,13 +93,24 @@ def plan_meta() -> PlanMetaOut:
 
 
 @router.get("", response_model=list[PlanBrief])
-def list_plans(limit: int = 20, db: Session = Depends(get_db)) -> list[PlanBrief]:
-    return [_brief(plan) for plan in SqlAlchemyStudyPlanRepository(db).list(limit=limit)]
+def list_plans(
+    limit: int = 20,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> list[PlanBrief]:
+    return [
+        _brief(plan)
+        for plan in SqlAlchemyStudyPlanRepository(db).list(space.id, limit=limit)
+    ]
 
 
 @router.get("/{plan_id}", response_model=PlanDetail)
-def get_plan(plan_id: str, db: Session = Depends(get_db)) -> PlanDetail:
-    plan = SqlAlchemyStudyPlanRepository(db).get(plan_id)
+def get_plan(
+    plan_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> PlanDetail:
+    plan = SqlAlchemyStudyPlanRepository(db).get(plan_id, space.id)
     if plan is None:
         raise HTTPException(status_code=404, detail="计划不存在或已删除")
     brief = _brief(plan)
@@ -105,7 +122,11 @@ def get_plan(plan_id: str, db: Session = Depends(get_db)) -> PlanDetail:
 
 
 @router.delete("/{plan_id}")
-def delete_plan(plan_id: str, db: Session = Depends(get_db)) -> dict:
-    if not SqlAlchemyStudyPlanRepository(db).delete(plan_id):
+def delete_plan(
+    plan_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> dict:
+    if not SqlAlchemyStudyPlanRepository(db).delete(plan_id, space.id):
         raise HTTPException(status_code=404, detail="计划不存在或已删除")
     return {"deleted": plan_id}

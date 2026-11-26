@@ -134,7 +134,8 @@ async def sse_plan(payload: dict) -> AsyncIterator[str]:
 
         # 循环前的检查：两份数据都是 0 时不出计划。
         # 否则模型会开始编「你最近在学什么」——这比不生成更糟。
-        stats = StatsRepository(db).summary()
+        space_id = payload["space_id"]
+        stats = StatsRepository(db, space_id).summary()
         if stats["documents"]["total"] == 0 and stats["practice"]["sessions"] == 0:
             yield _event(
                 "no_data",
@@ -194,7 +195,11 @@ async def sse_plan(payload: dict) -> AsyncIterator[str]:
                 }
                 try:
                     saved = plan_tools.save_plan(
-                        db, markdown=markdown, goal=goal or str(args.get("goal") or ""), meta=meta
+                        db,
+                        space_id=space_id,
+                        markdown=markdown,
+                        goal=goal or str(args.get("goal") or ""),
+                        meta=meta,
                     )
                 except ToolError as exc:
                     messages.append({"role": "assistant", "content": reply})
@@ -211,7 +216,9 @@ async def sse_plan(payload: dict) -> AsyncIterator[str]:
                 plan_id = saved["plan_id"]
                 elapsed = round(time.monotonic() - started, 1)
                 SqlAlchemyStudyPlanRepository(db).update_meta(
-                    plan_id, {"elapsed_seconds": elapsed, "steps_count": len(steps)}
+                    plan_id,
+                    {"elapsed_seconds": elapsed, "steps_count": len(steps)},
+                    space_id,
                 )
                 yield _event(
                     "plan",
@@ -259,7 +266,7 @@ async def sse_plan(payload: dict) -> AsyncIterator[str]:
             begin = time.monotonic()
             ok = True
             try:
-                result = await handler(db, **args)
+                result = await handler(db, space_id=space_id, **args)
             except ToolError as exc:
                 result, ok = {"ok": False, "error": str(exc)}, False
             except Exception as exc:  # noqa: BLE001 - 工具故障要让模型换路，不是整轮失败

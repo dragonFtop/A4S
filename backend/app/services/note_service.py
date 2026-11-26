@@ -61,6 +61,7 @@ class NoteNotFound(NoteError):
 def create(
     db,
     *,
+    space_id: str,
     title: str,
     topic_id: str,
     tag_ids: list[str] | None = None,
@@ -69,9 +70,9 @@ def create(
     source_type: NoteSourceType = NoteSourceType.MANUAL,
     ai_model: str | None = None,
 ) -> Note:
-    _assert_topic(db, topic_id)
+    _assert_topic(db, topic_id, space_id)
     repo = SqlAlchemyNoteRepository(db)
-    resolved, sources = _resolve_cites(db, markdown) if markdown else (markdown, [])
+    resolved, sources = _resolve_cites(db, markdown, space_id) if markdown else (markdown, [])
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     note = Note(
         id=str(uuid.uuid4()),
@@ -82,18 +83,19 @@ def create(
         source_type=source_type,
         template=template,
         ai_model=ai_model,
-        tag_ids=_valid_tags(db, tag_ids),
+        tag_ids=_valid_tags(db, tag_ids, space_id),
         sources=sources,
         created_at=now,
         updated_at=now,
+        space_id=space_id,
     )
     repo.add(note)
     # 回读一次：来源的文档名是 join 出来的，内存对象上没有
-    return repo.get(note.id) or note
+    return repo.get(note.id, space_id) or note
 
 
-def get(db, note_id: str) -> Note:
-    note = SqlAlchemyNoteRepository(db).get(note_id)
+def get(db, note_id: str, space_id: str) -> Note:
+    note = SqlAlchemyNoteRepository(db).get(note_id, space_id)
     if note is None:
         raise NoteNotFound("笔记不存在或已删除")
     return note
@@ -102,6 +104,7 @@ def get(db, note_id: str) -> Note:
 def list_notes(
     db,
     *,
+    space_id: str,
     topic_ids: list[str] | None = None,
     tag_ids: list[str] | None = None,
     status: str | None = None,
@@ -110,6 +113,7 @@ def list_notes(
     offset: int = 0,
 ) -> list[Note]:
     return SqlAlchemyNoteRepository(db).list(
+        space_id,
         limit=limit,
         offset=offset,
         topic_ids=topic_ids,
@@ -123,6 +127,7 @@ def update(
     db,
     note_id: str,
     *,
+    space_id: str,
     title: str | None = None,
     markdown: str | None = None,
     topic_id: str | None = None,
@@ -131,7 +136,7 @@ def update(
     sources: list[NoteSource] | None = None,
 ) -> Note:
     repo = SqlAlchemyNoteRepository(db)
-    note = repo.get(note_id)
+    note = repo.get(note_id, space_id)
     if note is None:
         raise NoteNotFound("笔记不存在或已删除")
 
@@ -144,13 +149,13 @@ def update(
         if len(markdown) > MARKDOWN_LIMIT:
             raise NoteError(f"正文超出 {MARKDOWN_LIMIT} 字符上限")
         # 正文一改，角标与来源表就可能对不上：以正文为准重算，双向校验才守得住
-        note.markdown, derived = _resolve_cites(db, markdown)
+        note.markdown, derived = _resolve_cites(db, markdown, space_id)
         content_changed = True
     if topic_id is not None and topic_id != note.topic_id:
-        _assert_topic(db, topic_id)
+        _assert_topic(db, topic_id, space_id)
         note.topic_id = topic_id
     if tag_ids is not None:
-        note.tag_ids = _valid_tags(db, tag_ids)
+        note.tag_ids = _valid_tags(db, tag_ids, space_id)
     if template is not None:
         note.template = template
     if sources is not None:
@@ -166,12 +171,12 @@ def update(
             note.confirmed_at = None
     repo.update(note)
     # 同 create：来源的文档名靠 join 补全，得回读才拿得到
-    return repo.get(note.id) or note
+    return repo.get(note.id, space_id) or note
 
 
-def confirm(db, note_id: str) -> Note:
+def confirm(db, note_id: str, space_id: str) -> Note:
     repo = SqlAlchemyNoteRepository(db)
-    note = repo.get(note_id)
+    note = repo.get(note_id, space_id)
     if note is None:
         raise NoteNotFound("笔记不存在或已删除")
     if not note.markdown.strip():
@@ -185,24 +190,24 @@ def confirm(db, note_id: str) -> Note:
     return note
 
 
-def delete(db, note_id: str) -> None:
+def delete(db, note_id: str, space_id: str) -> None:
     """删笔记不动来源资料——来源是只读引用，不是子资源。"""
-    SqlAlchemyNoteRepository(db).delete(note_id)
+    SqlAlchemyNoteRepository(db).delete(note_id, space_id)
 
 
 # ---------- 校验辅助 ----------
 
 
-def _assert_topic(db, topic_id: str) -> None:
+def _assert_topic(db, topic_id: str, space_id: str) -> None:
     from app.domain.models.entities import TopicKind
 
     repo = SqlAlchemyTopicRepository(db)
-    topic = repo.get(topic_id)
+    topic = repo.get(topic_id, space_id)
     if topic is None or topic.kind is not TopicKind.TOPIC:
         raise NoteError("主题不存在，请先创建主题再保存笔记")
 
 
-def _resolve_cites(db, markdown: str) -> tuple[str, list[NoteSource]]:
+def _resolve_cites(db, markdown: str, space_id: str) -> tuple[str, list[NoteSource]]:
     """把正文里的 `[[chunk:id]]` 对齐到真实片段（手工创建/编辑走这条）。
 
     与起草路径的差别：起草时只信 `allowed` 里的 id，这里没有"给定范围"，
@@ -220,7 +225,7 @@ def _resolve_cites(db, markdown: str) -> tuple[str, list[NoteSource]]:
     repo = SqlAlchemyChunkRepository(db)
     found: dict[str, Any] = {}
     for chunk_id in ids:
-        chunk = repo.get(chunk_id)
+        chunk = repo.get(chunk_id, space_id)
         if chunk is not None:
             found[chunk_id] = chunk
 
@@ -242,7 +247,7 @@ def _resolve_cites(db, markdown: str) -> tuple[str, list[NoteSource]]:
     return markdown, sources
 
 
-def _valid_tags(db, tag_ids: list[str] | None) -> list[str]:
+def _valid_tags(db, tag_ids: list[str] | None, space_id: str) -> list[str]:
     from app.domain.models.entities import TopicKind
 
     if not tag_ids:
@@ -250,7 +255,7 @@ def _valid_tags(db, tag_ids: list[str] | None) -> list[str]:
     repo = SqlAlchemyTopicRepository(db)
     out: list[str] = []
     for tag_id in dict.fromkeys(tag_ids):
-        tag = repo.get(tag_id)
+        tag = repo.get(tag_id, space_id)
         if tag is not None and tag.kind is TopicKind.TAG:
             out.append(tag_id)
     return out
@@ -266,6 +271,7 @@ _JOB_KEEP = 20  # 只留最近的任务，避免进程内字典无限长
 def start_draft(
     db,
     *,
+    space_id: str,
     template: NoteTemplate,
     document_ids: list[str] | None = None,
     topic_id: str | None = None,
@@ -280,15 +286,17 @@ def start_draft(
     if not settings.llm_configured:
         raise NoteError("尚未配置大模型 API Key，请先在设置页填写")
 
-    materials, allowed = _collect_materials(db, document_ids=document_ids, topic_id=topic_id)
+    materials, allowed = _collect_materials(
+        db, space_id=space_id, document_ids=document_ids, topic_id=topic_id
+    )
     if not allowed:
         raise NoteError("选定范围内没有可用的资料片段，请先导入并等待索引完成")
 
     target_topic = note_topic_id or topic_id or "uncategorized"
-    _assert_topic(db, target_topic)
+    _assert_topic(db, target_topic, space_id)
 
     if note_id:
-        existing = SqlAlchemyNoteRepository(db).get(note_id)
+        existing = SqlAlchemyNoteRepository(db).get(note_id, space_id)
         if existing is None:
             raise NoteNotFound("要重新整理的笔记不存在")
 
@@ -307,6 +315,7 @@ def start_draft(
         "_title": title,
         "_topic_id": target_topic,
         "_tag_ids": tag_ids or [],
+        "_space_id": space_id,
     }
     with _LOCK:
         _JOBS[job_id] = job
@@ -345,11 +354,12 @@ async def run_draft(job_id: str) -> None:
     try:
         from app.config import settings
 
+        space_id = payload["_space_id"]
         llm = build_llm()
         messages = note_prompts.build_messages(
             payload["_template"],
             payload["_materials"],
-            topic_name=_topic_name(db, payload["_topic_id"]),
+            topic_name=_topic_name(db, payload["_topic_id"], space_id),
         )
         raw = await llm.chat(messages, temperature=0.3)
         markdown = _assemble(raw, payload["_allowed"])
@@ -359,6 +369,7 @@ async def run_draft(job_id: str) -> None:
             note = update(
                 db,
                 payload["note_id"],
+                space_id=space_id,
                 title=markdown_title(markdown) or payload["_title"] or None,
                 markdown=markdown,
                 template=template,
@@ -370,6 +381,7 @@ async def run_draft(job_id: str) -> None:
         else:
             note = create(
                 db,
+                space_id=space_id,
                 title=markdown_title(markdown) or payload["_title"] or "未命名笔记",
                 topic_id=payload["_topic_id"],
                 tag_ids=payload["_tag_ids"],
@@ -413,8 +425,8 @@ def _explain(message: str) -> str:
     return message[:400]
 
 
-def _topic_name(db, topic_id: str) -> str:
-    topic = SqlAlchemyTopicRepository(db).get(topic_id)
+def _topic_name(db, topic_id: str, space_id: str) -> str:
+    topic = SqlAlchemyTopicRepository(db).get(topic_id, space_id)
     return topic.name if topic else ""
 
 
@@ -422,7 +434,7 @@ def _topic_name(db, topic_id: str) -> str:
 
 
 def _collect_materials(
-    db, *, document_ids: list[str] | None, topic_id: str | None
+    db, *, space_id: str, document_ids: list[str] | None, topic_id: str | None
 ) -> tuple[str, dict[str, dict]]:
     """挑出要喂给模型的片段，同时返回"允许出现的 chunk_id"白名单。"""
     chunk_repo = SqlAlchemyChunkRepository(db)
@@ -431,14 +443,14 @@ def _collect_materials(
     picked: list = []
     if document_ids:
         for doc_id in dict.fromkeys(document_ids):
-            doc = doc_repo.get(doc_id)
+            doc = doc_repo.get(doc_id, space_id)
             if doc is None:
                 continue
             picked.extend(chunk_repo.list_by_document(doc_id)[:MAX_CHUNKS_PER_DOC])
             if len(picked) >= MAX_MATERIAL_CHUNKS:
                 break
     elif topic_id:
-        picked = chunk_repo.list_by_topic(topic_id, limit=MAX_MATERIAL_CHUNKS)
+        picked = chunk_repo.list_by_topic(topic_id, space_id, limit=MAX_MATERIAL_CHUNKS)
 
     picked = picked[:MAX_MATERIAL_CHUNKS]
 

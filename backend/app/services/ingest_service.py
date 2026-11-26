@@ -79,6 +79,7 @@ def _guess_title(text: str) -> str:
 def create_from_upload(
     db,
     *,
+    space_id: str,
     filename: str,
     content: bytes,
     topic_id: str = UNCATEGORIZED_ID,
@@ -105,6 +106,7 @@ def create_from_upload(
         topic_id=topic_id or UNCATEGORIZED_ID,
         tag_ids=tag_ids or [],
         storage_path=rel_path,
+        space_id=space_id,
     )
     SqlAlchemyDocumentRepository(db).add(doc)
     return doc
@@ -113,6 +115,7 @@ def create_from_upload(
 def create_from_text(
     db,
     *,
+    space_id: str,
     content: str,
     title: str = "",
     topic_id: str = UNCATEGORIZED_ID,
@@ -138,6 +141,7 @@ def create_from_text(
         topic_id=topic_id or UNCATEGORIZED_ID,
         tag_ids=tag_ids or [],
         storage_path=rel_path,
+        space_id=space_id,
     )
     SqlAlchemyDocumentRepository(db).add(doc)
     return doc
@@ -150,21 +154,34 @@ def run_ingest(document_id: str) -> None:
     """后台任务入口。自己开 Session，避免跨线程复用请求的会话。"""
     db = SessionLocal()
     try:
-        docs = SqlAlchemyDocumentRepository(db)
-        doc = docs.get(document_id)
-        if doc is None:
+        # 这是后台任务：只拿得到内部 id，先把记录读出来确认它属于哪个空间，
+        # 之后所有查询都在那个空间里进行（而不是"不限空间"）。
+        from app.infrastructure.db.models import DocumentORM
+
+        row = db.get(DocumentORM, document_id)
+        if row is None:
             logger.warning("待处理资料不存在：%s", document_id)
             return
+        space_id = row.space_id
 
-        docs.update_status(document_id, DocumentStatus.PROCESSING)
+        docs = SqlAlchemyDocumentRepository(db)
+        doc = docs.get(document_id, space_id)
+        if doc is None:
+            logger.warning("待处理资料不属于任何空间：%s", document_id)
+            return
+
+        docs.update_status(document_id, DocumentStatus.PROCESSING, space_id=space_id)
         try:
             count = _process(db, doc)
         except Exception as exc:
             message = str(exc) or exc.__class__.__name__
             logger.exception("资料处理失败：%s（%s）", doc.name, document_id)
-            docs.update_status(document_id, DocumentStatus.FAILED, chunk_count=0, error=message[:500])
+            docs.update_status(
+                document_id, DocumentStatus.FAILED, chunk_count=0, error=message[:500],
+                space_id=space_id,
+            )
             return
-        docs.update_status(document_id, DocumentStatus.READY, chunk_count=count)
+        docs.update_status(document_id, DocumentStatus.READY, chunk_count=count, space_id=space_id)
         logger.info("资料处理完成：%s，%s 个片段", doc.name, count)
     finally:
         db.close()
@@ -203,6 +220,7 @@ def _process(db, doc: Document) -> int:
             source_name=doc.name,
             page=item.page,
             topic_id=doc.topic_id,
+            space_id=doc.space_id,
         )
         for item in slices
     ]
@@ -233,10 +251,10 @@ def _embed_batched(texts: list[str]) -> list[list[float]]:
 # ---------- 删除 ----------
 
 
-def delete_document(db, document_id: str) -> None:
+def delete_document(db, document_id: str, space_id: str) -> None:
     """删资料：向量 → 片段 → 关联 → 文档 → 原始文件。顺序不能反。"""
     docs = SqlAlchemyDocumentRepository(db)
-    doc = docs.get(document_id)
+    doc = docs.get(document_id, space_id)
     if doc is None:
         return
 
@@ -245,7 +263,7 @@ def delete_document(db, document_id: str) -> None:
     if chunk_ids:
         get_vector_store().delete_chunks(chunk_ids)
 
-    docs.delete(document_id)  # 仓储内部级联删 chunks 与 document_tags
+    docs.delete(document_id, space_id)  # 仓储内部级联删 chunks 与 document_tags
 
     if doc.storage_path:
         path = Path(DATA_DIR) / doc.storage_path
@@ -258,13 +276,13 @@ def delete_document(db, document_id: str) -> None:
 # ---------- 主题变更 ----------
 
 
-def move_document_topic(db, document_id: str, topic_id: str) -> None:
+def move_document_topic(db, document_id: str, topic_id: str, space_id: str) -> None:
     """改归属主题。向量分区键必须同步，否则按主题检索会漏掉这份资料。"""
-    SqlAlchemyDocumentRepository(db).set_topic(document_id, topic_id)
+    SqlAlchemyDocumentRepository(db).set_topic(document_id, topic_id, space_id)
     chunk_ids = [c.id for c in SqlAlchemyChunkRepository(db).list_by_document(document_id)]
     # vec0 不能原地改分区键，但可原样搬移向量，无需重新 embedding
     get_vector_store().repartition(chunk_ids, topic_id)
 
 
-def topic_exists(db, topic_id: str) -> bool:
-    return SqlAlchemyTopicRepository(db).get(topic_id) is not None
+def topic_exists(db, topic_id: str, space_id: str) -> bool:
+    return SqlAlchemyTopicRepository(db).get(topic_id, space_id) is not None

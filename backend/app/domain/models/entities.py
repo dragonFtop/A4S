@@ -31,6 +31,10 @@ def _now() -> datetime:
 UNCATEGORIZED_ID = "uncategorized"
 UNCATEGORIZED_NAME = "未分类"
 
+# 首个用户注册时，库里已有的数据（迁移前留下的）统一挂在这个占位空间上，
+# 注册流程会把它整批认领给新用户。之后这个 id 不会再被使用。
+LEGACY_SPACE_ID = "default"
+
 
 class DocumentStatus(str, Enum):
     """资料解析状态。"""
@@ -110,6 +114,8 @@ class Topic:
     user_id: str = "local"
     # 统计投影，不持久化：主题下资料数，标签下引用数
     count: int = 0
+    # 归属空间：所有读写都按它隔离
+    space_id: str = LEGACY_SPACE_ID
 
     @property
     def is_builtin(self) -> bool:
@@ -126,6 +132,8 @@ class Chunk:
     source_name: str
     page: int | None = None
     topic_id: str = UNCATEGORIZED_ID
+    # 归属空间：所有读写都按它隔离
+    space_id: str = LEGACY_SPACE_ID
 
 
 @dataclass(slots=True)
@@ -144,6 +152,8 @@ class Document:
     tag_ids: list[str] = field(default_factory=list)
     storage_path: str | None = None
     user_id: str = "local"  # 预留：未来多用户隔离
+    # 归属空间：所有读写都按它隔离
+    space_id: str = LEGACY_SPACE_ID
 
 
 @dataclass(slots=True)
@@ -184,6 +194,8 @@ class PracticeSession:
     user_id: str = "local"
     # 组卷参数快照（范围/题型配比/难度/告警），列表页与续答都靠它还原现场
     meta: dict = field(default_factory=dict)
+    # 归属空间：所有读写都按它隔离
+    space_id: str = LEGACY_SPACE_ID
 
 
 @dataclass(slots=True)
@@ -203,6 +215,8 @@ class WrongAnswer:
     document_id: str | None = None
     # 最近一次答错时写下的答案：错题本要能并排对比「你选的」和「正确答案」
     last_response: str = ""
+    # 归属空间：所有读写都按它隔离
+    space_id: str = LEGACY_SPACE_ID
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -230,6 +244,8 @@ class StudyPlan:
     meta: dict = field(default_factory=dict)
     created_at: datetime = field(default_factory=_now)
     user_id: str = "local"
+    # 归属空间：所有读写都按它隔离
+    space_id: str = LEGACY_SPACE_ID
 
 
 @dataclass(slots=True)
@@ -242,6 +258,8 @@ class ReviewReport:
     markdown: str
     metrics: dict = field(default_factory=dict)
     created_at: datetime = field(default_factory=_now)
+    # 归属空间：所有读写都按它隔离
+    space_id: str = LEGACY_SPACE_ID
 
 
 @dataclass(slots=True)
@@ -271,8 +289,78 @@ class Note:
     updated_at: datetime = field(default_factory=_now)
     confirmed_at: datetime | None = None
     user_id: str = "local"
+    # 归属空间：所有读写都按它隔离
+    space_id: str = LEGACY_SPACE_ID
 
     @property
     def ai_written_count(self) -> int:
         """正文中标记为 AI 补写的段落数，用于前端提示条。"""
         return self.markdown.count("<!--ai-->")
+
+
+# ---------------------------------------------------------------- 用户与空间
+
+class SpaceKind(str, Enum):
+    """空间类型：个人空间是注册时自动建的，学习小组是手动建的。"""
+
+    PERSONAL = "personal"
+    GROUP = "group"
+
+
+class MemberRole(str, Enum):
+    """成员角色。只有两级——第三级（只读）在没有真实协作需求前不值得引入。"""
+
+    OWNER = "owner"
+    MEMBER = "member"
+
+
+@dataclass(slots=True)
+class User:
+    """登录账号。密码只存 scrypt 派生串，明文不落库、不出接口。"""
+
+    id: str
+    username: str
+    password_hash: str = ""
+    display_name: str = ""
+    status: str = "active"
+    created_at: datetime = field(default_factory=_now)
+    last_login_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class Space:
+    """空间。个人空间与学习小组是同一个东西，只用 kind 区分。
+
+    这是从 ragflow-plus 学来的关键一点：团队不另建模型，直接复用「归属容器」，
+    个人空间把别人加进来就成了小组。少一层模型，就少一层同步和权限判断。
+    """
+
+    id: str
+    name: str
+    kind: SpaceKind = SpaceKind.PERSONAL
+    owner_id: str = ""
+    created_at: datetime = field(default_factory=_now)
+    updated_at: datetime = field(default_factory=_now)
+    # 投影：成员数 / 我在这个空间里的角色，查询时回填
+    member_count: int = 0
+    my_role: MemberRole = MemberRole.MEMBER
+
+    @property
+    def is_personal(self) -> bool:
+        return self.kind is SpaceKind.PERSONAL
+
+
+@dataclass(slots=True)
+class SpaceMember:
+    """空间成员。username / display_name 是投影，展示时不必再查用户表。"""
+
+    space_id: str
+    user_id: str
+    role: MemberRole = MemberRole.MEMBER
+    joined_at: datetime = field(default_factory=_now)
+    username: str = ""
+    display_name: str = ""
+
+    @property
+    def is_owner(self) -> bool:
+        return self.role is MemberRole.OWNER

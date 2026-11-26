@@ -27,7 +27,8 @@ if TEST_DB.exists():
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.main import app  # noqa: E402
+from app.main import app
+from scripts._auth import login  # noqa: E402
 
 PASSED: list[str] = []
 FAILED: list[str] = []
@@ -45,6 +46,7 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 def main() -> int:
     want_draft = "--draft" in sys.argv
     with TestClient(app) as client:
+        login(client)
         print("\n== 1. 模板与空列表 ==")
         r = client.get("/api/notes/templates")
         templates = r.json()["items"]
@@ -144,17 +146,19 @@ def main() -> int:
         from app.infrastructure.db.models import ChunkORM, DocumentORM
         from app.infrastructure.db.session import SessionLocal
 
+        space_id = client.get("/api/auth/me").json()["current_space"]["id"]
         with SessionLocal() as session:
             session.merge(
                 DocumentORM(
                     id="doc-smoke", name="冒烟资料", ext="txt", size=12, status="ready",
-                    chunk_count=1, topic_id=topic_id,
+                    chunk_count=1, topic_id=topic_id, space_id=space_id,
                 )
             )
             session.merge(
                 ChunkORM(
                     id="chunk-smoke", document_id="doc-smoke", chunk_index=0,
                     text="这是真实片段的正文，用来做来源摘要。", topic_id=topic_id,
+                    space_id=space_id,
                 )
             )
             session.commit()

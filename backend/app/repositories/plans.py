@@ -22,6 +22,7 @@ def _to_plan(row: StudyPlanORM) -> StudyPlan:
         meta=row.meta or {},
         created_at=row.created_at,
         user_id=row.user_id,
+        space_id=row.space_id,
     )
 
 
@@ -36,6 +37,7 @@ class SqlAlchemyStudyPlanRepository:
             markdown=plan.markdown,
             meta=plan.meta,
             user_id=plan.user_id,
+            space_id=plan.space_id,
             created_at=plan.created_at,
         )
         self.db.add(row)
@@ -43,10 +45,11 @@ class SqlAlchemyStudyPlanRepository:
         self.db.refresh(row)
         return _to_plan(row)
 
-    def list(self, limit: int = 20) -> list[StudyPlan]:
+    def list(self, space_id: str, limit: int = 20) -> list[StudyPlan]:
         rows = (
             self.db.execute(
                 select(StudyPlanORM)
+                .where(StudyPlanORM.space_id == space_id)
                 .order_by(StudyPlanORM.created_at.desc())
                 .limit(max(1, min(limit, 100)))
             )
@@ -55,25 +58,27 @@ class SqlAlchemyStudyPlanRepository:
         )
         return [_to_plan(row) for row in rows]
 
-    def get(self, plan_id: str) -> StudyPlan | None:
+    def get(self, plan_id: str, space_id: str) -> StudyPlan | None:
         row = self.db.get(StudyPlanORM, plan_id)
-        return _to_plan(row) if row else None
+        if row is None or row.space_id != space_id:
+            return None
+        return _to_plan(row)
 
-    def update_meta(self, plan_id: str, extra: dict) -> None:
+    def update_meta(self, plan_id: str, extra: dict, space_id: str) -> None:
         """补充过程字段（耗时、步数）。
 
         计划正文落库发生在循环内部，那一刻还不知道总耗时；
         事后补写比在保存时编一个数更诚实。
         """
         row = self.db.get(StudyPlanORM, plan_id)
-        if row is None:
+        if row is None or row.space_id != space_id:
             return
         row.meta = {**(row.meta or {}), **extra}
         self.db.commit()
 
-    def delete(self, plan_id: str) -> bool:
+    def delete(self, plan_id: str, space_id: str) -> bool:
         row = self.db.get(StudyPlanORM, plan_id)
-        if row is None:
+        if row is None or row.space_id != space_id:
             return False
         self.db.delete(row)
         self.db.commit()

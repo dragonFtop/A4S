@@ -57,12 +57,16 @@ def _accuracy(correct: int, answered: int) -> float:
 # ---------- 时间窗聚合 ----------
 
 
-def _documents(db: Session, start: datetime, end: datetime) -> dict:
+def _documents(db: Session, start: datetime, end: datetime, space_id: str) -> dict:
     """窗口内新增资料，按主题分组。"""
     rows = db.execute(
         select(DocumentORM, TopicORM)
         .outerjoin(TopicORM, TopicORM.id == DocumentORM.topic_id)
-        .where(DocumentORM.created_at >= start, DocumentORM.created_at <= end)
+        .where(
+            DocumentORM.space_id == space_id,
+            DocumentORM.created_at >= start,
+            DocumentORM.created_at <= end,
+        )
         .order_by(DocumentORM.created_at.desc())
     ).all()
 
@@ -100,12 +104,13 @@ def _documents(db: Session, start: datetime, end: datetime) -> dict:
     }
 
 
-def _practice(db: Session, start: datetime, end: datetime) -> dict:
+def _practice(db: Session, start: datetime, end: datetime, space_id: str) -> dict:
     """窗口内已提交练习，按主题与题型拆分。"""
     rows = list(
         db.execute(
             select(PracticeSessionORM)
             .where(
+                PracticeSessionORM.space_id == space_id,
                 PracticeSessionORM.status == PracticeStatus.SUBMITTED.value,
                 PracticeSessionORM.finished_at.is_not(None),
                 PracticeSessionORM.finished_at >= start,
@@ -165,7 +170,9 @@ def _practice(db: Session, start: datetime, end: datetime) -> dict:
     topic_ids = [key for key in topic_bucket if key != UNCATEGORIZED_ID]
     if topic_ids:
         for topic in db.execute(
-            select(TopicORM).where(TopicORM.id.in_(topic_ids))
+            select(TopicORM).where(
+                TopicORM.id.in_(topic_ids), TopicORM.space_id == space_id
+            )
         ).scalars():
             bucket = topic_bucket.get(topic.id)
             if bucket:
@@ -196,7 +203,9 @@ def _practice(db: Session, start: datetime, end: datetime) -> dict:
     }
 
 
-def collect_window(db: Session, *, window_days: int) -> tuple[datetime, datetime, dict]:
+def collect_window(
+    db: Session, *, window_days: int, space_id: str
+) -> tuple[datetime, datetime, dict]:
     """聚合一整段时间窗，返回 (start, end, metrics)。
 
     metrics 是**快照**：报告存下来之后就与库解耦，日后删资料也不会让历史报告变空。
@@ -204,11 +213,12 @@ def collect_window(db: Session, *, window_days: int) -> tuple[datetime, datetime
     end = utcnow_naive()
     start = end - timedelta(days=window_days)
 
-    documents = _documents(db, start, end)
-    practice = _practice(db, start, end)
+    documents = _documents(db, start, end, space_id)
+    practice = _practice(db, start, end, space_id)
 
     return start, end, {
         "window_days": window_days,
+        "space_id": space_id,
         "documents": documents,
         "practice": practice,
         "period": {"start": to_iso(start), "end": to_iso(end)},
@@ -227,12 +237,14 @@ def _to_report(row: ReviewReportORM) -> ReviewReport:
         markdown=row.markdown,
         metrics=row.metrics or {},
         created_at=row.created_at,
+        space_id=row.space_id,
     )
 
 
 class SqlAlchemyReviewRepository:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, space_id: str) -> None:
         self.db = db
+        self.space_id = space_id
 
     def save(self, report: ReviewReport) -> None:
         row = self.db.get(ReviewReportORM, report.id)
@@ -244,6 +256,7 @@ class SqlAlchemyReviewRepository:
                 period_end=report.period_end,
                 markdown=report.markdown,
                 metrics=report.metrics,
+                space_id=report.space_id,
                 created_at=report.created_at,
             )
             self.db.add(row)
@@ -254,18 +267,26 @@ class SqlAlchemyReviewRepository:
 
     def get(self, report_id: str) -> ReviewReport | None:
         row = self.db.get(ReviewReportORM, report_id)
-        return _to_report(row) if row else None
+        if row is None or row.space_id != self.space_id:
+            return None
+        return _to_report(row)
 
     def list(self, limit: int = 50) -> list[ReviewReport]:
         rows = self.db.execute(
-            select(ReviewReportORM).order_by(ReviewReportORM.created_at.desc()).limit(limit)
+            select(ReviewReportORM)
+            .where(ReviewReportORM.space_id == self.space_id)
+            .order_by(ReviewReportORM.created_at.desc())
+            .limit(limit)
         ).scalars()
         return [_to_report(row) for row in rows]
 
     def latest(self) -> ReviewReport | None:
         row = (
             self.db.execute(
-                select(ReviewReportORM).order_by(ReviewReportORM.created_at.desc()).limit(1)
+                select(ReviewReportORM)
+                .where(ReviewReportORM.space_id == self.space_id)
+                .order_by(ReviewReportORM.created_at.desc())
+                .limit(1)
             )
             .scalars()
             .first()
@@ -274,9 +295,16 @@ class SqlAlchemyReviewRepository:
 
     def delete(self, report_id: str) -> None:
         row = self.db.get(ReviewReportORM, report_id)
-        if row is not None:
+        if row is not None and row.space_id == self.space_id:
             self.db.delete(row)
             self.db.commit()
 
     def count(self) -> int:
-        return int(self.db.execute(select(func.count()).select_from(ReviewReportORM)).scalar() or 0)
+        return int(
+            self.db.execute(
+                select(func.count())
+                .select_from(ReviewReportORM)
+                .where(ReviewReportORM.space_id == self.space_id)
+            ).scalar()
+            or 0
+        )

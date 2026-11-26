@@ -22,6 +22,7 @@ def _to_wrong_answer(row: WrongAnswerORM) -> WrongAnswer:
         topic_id=row.topic_id,
         document_id=row.document_id,
         last_response=row.last_response or "",
+        space_id=row.space_id,
     )
 
 
@@ -31,6 +32,8 @@ class SqlAlchemyWrongAnswerRepository:
     去重键选 question_id 而不是题干：同一道题在重练卷里 id 不变，重练答错才能累加次数。
     跨卷子重新生成的近似题会各算一条——机器无法可靠判断「是不是同一道题」，
     与其用文本相似度猜，不如让这个边界清楚。
+
+    注意去重范围是**空间内**：两个小组各自有一道同 id 的题，各记各的。
     """
 
     def __init__(self, db: Session) -> None:
@@ -38,7 +41,10 @@ class SqlAlchemyWrongAnswerRepository:
 
     def upsert(self, wrong: WrongAnswer) -> WrongAnswer:
         row = self.db.execute(
-            select(WrongAnswerORM).where(WrongAnswerORM.question_id == wrong.question.id)
+            select(WrongAnswerORM).where(
+                WrongAnswerORM.question_id == wrong.question.id,
+                WrongAnswerORM.space_id == wrong.space_id,
+            )
         ).scalar_one_or_none()
 
         if row is None:
@@ -47,6 +53,7 @@ class SqlAlchemyWrongAnswerRepository:
                 question_id=wrong.question.id,
                 document_id=wrong.document_id,
                 topic_id=wrong.topic_id,
+                space_id=wrong.space_id,
                 question=question_to_dict(wrong.question),
                 wrong_count=max(1, wrong.wrong_count),
                 last_response=wrong.last_response,
@@ -68,6 +75,7 @@ class SqlAlchemyWrongAnswerRepository:
 
     def list(
         self,
+        space_id: str,
         *,
         topic_id: str | None = None,
         document_id: str | None = None,
@@ -77,7 +85,7 @@ class SqlAlchemyWrongAnswerRepository:
         sort: str = "recent",
         limit: int = 200,
     ) -> list[WrongAnswer]:
-        stmt = select(WrongAnswerORM)
+        stmt = select(WrongAnswerORM).where(WrongAnswerORM.space_id == space_id)
         if topic_id:
             stmt = stmt.where(WrongAnswerORM.topic_id == topic_id)
         if document_id:
@@ -99,27 +107,35 @@ class SqlAlchemyWrongAnswerRepository:
             items = [item for item in items if item.question.type.value == question_type]
         return items
 
-    def list_by_ids(self, ids: list[str]) -> list[WrongAnswer]:
+    def list_by_ids(self, ids: list[str], space_id: str) -> list[WrongAnswer]:
         if not ids:
             return []
         rows = self.db.execute(
-            select(WrongAnswerORM).where(WrongAnswerORM.id.in_(ids))
+            select(WrongAnswerORM).where(
+                WrongAnswerORM.id.in_(ids), WrongAnswerORM.space_id == space_id
+            )
         ).scalars()
         return [_to_wrong_answer(row) for row in rows]
 
-    def get(self, wrong_id: str) -> WrongAnswer | None:
+    def get(self, wrong_id: str, space_id: str) -> WrongAnswer | None:
         row = self.db.get(WrongAnswerORM, wrong_id)
-        return _to_wrong_answer(row) if row else None
+        if row is None or row.space_id != space_id:
+            return None
+        return _to_wrong_answer(row)
 
-    def delete(self, wrong_id: str) -> bool:
+    def delete(self, wrong_id: str, space_id: str) -> bool:
         row = self.db.get(WrongAnswerORM, wrong_id)
-        if row is None:
+        if row is None or row.space_id != space_id:
             return False
         self.db.delete(row)
         self.db.commit()
         return True
 
-    def count(self) -> int:
+    def count(self, space_id: str) -> int:
         return int(
-            self.db.execute(select(func.count()).select_from(WrongAnswerORM)).scalar_one()
+            self.db.execute(
+                select(func.count())
+                .select_from(WrongAnswerORM)
+                .where(WrongAnswerORM.space_id == space_id)
+            ).scalar_one()
         )

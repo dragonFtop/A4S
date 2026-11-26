@@ -75,10 +75,12 @@ def _fmt_day(value: datetime) -> str:
     return value.astimezone().strftime("%Y-%m-%d")
 
 
-def _top_wrong(db: Session, window_days: int, limit: int = 5) -> list[dict]:
+def _top_wrong(db: Session, window_days: int, space_id: str, limit: int = 5) -> list[dict]:
     """窗口内错得最多的题，带主题名，供报告与邮件共用。"""
-    items = SqlAlchemyWrongAnswerRepository(db).list(days=window_days, sort="count", limit=limit)
-    topics = {topic.id: topic for topic in SqlAlchemyTopicRepository(db).list()}
+    items = SqlAlchemyWrongAnswerRepository(db).list(
+        space_id, days=window_days, sort="count", limit=limit
+    )
+    topics = {topic.id: topic for topic in SqlAlchemyTopicRepository(db).list(space_id)}
     return [
         {
             "question_id": item.question.id,
@@ -380,6 +382,7 @@ def _compose_markdown(
 
 async def generate_report(
     db: Session,
+    space_id: str,
     window_days: int = 7,
     *,
     trigger: str = "manual",
@@ -391,9 +394,11 @@ async def generate_report(
     if window_days not in WINDOWS:
         raise ReviewError(f"时间窗只能是 {', '.join(str(w) for w in WINDOWS)} 天")
 
-    period_start, period_end, metrics = collect_window(db, window_days=window_days)
-    wrong = wrong_summary(db, days=window_days)
-    top_wrong = _top_wrong(db, window_days)
+    period_start, period_end, metrics = collect_window(
+        db, window_days=window_days, space_id=space_id
+    )
+    wrong = wrong_summary(db, space_id=space_id, days=window_days)
+    top_wrong = _top_wrong(db, window_days, space_id)
 
     active = _has_activity(metrics, wrong)
     if active:
@@ -425,33 +430,36 @@ async def generate_report(
         period_end=period_end,
         markdown=markdown,
         metrics=metrics,
+        space_id=space_id,
     )
-    SqlAlchemyReviewRepository(db).save(report)
+    SqlAlchemyReviewRepository(db, space_id).save(report)
     return report
 
 
-def list_reports(db: Session, limit: int = 50) -> list[ReviewReport]:
-    return SqlAlchemyReviewRepository(db).list(limit=limit)
+def list_reports(db: Session, space_id: str, limit: int = 50) -> list[ReviewReport]:
+    return SqlAlchemyReviewRepository(db, space_id).list(limit=limit)
 
 
-def get_report(db: Session, report_id: str) -> ReviewReport:
-    report = SqlAlchemyReviewRepository(db).get(report_id)
+def get_report(db: Session, report_id: str, space_id: str) -> ReviewReport:
+    report = SqlAlchemyReviewRepository(db, space_id).get(report_id)
     if report is None:
         raise ReviewNotFound(report_id)
     return report
 
 
-def remove_report(db: Session, report_id: str) -> None:
-    get_report(db, report_id)
-    SqlAlchemyReviewRepository(db).delete(report_id)
+def remove_report(db: Session, report_id: str, space_id: str) -> None:
+    get_report(db, report_id, space_id)
+    SqlAlchemyReviewRepository(db, space_id).delete(report_id)
 
 
-def mark_push(db: Session, report: ReviewReport, ok: bool, detail: str) -> ReviewReport:
+def mark_push(
+    db: Session, report: ReviewReport, ok: bool, detail: str, space_id: str
+) -> ReviewReport:
     """记录推送结果。
 
     失败也要落库：界面要能显示「上次推送失败 + 原因」，报告本身不能丢。
     """
-    repo = SqlAlchemyReviewRepository(db)
+    repo = SqlAlchemyReviewRepository(db, space_id)
     metrics = dict(report.metrics or {})
     metrics["push"] = {
         "status": "sent" if ok else "failed",
@@ -463,9 +471,9 @@ def mark_push(db: Session, report: ReviewReport, ok: bool, detail: str) -> Revie
     return report
 
 
-def push_state(db: Session) -> dict[str, Any]:
+def push_state(db: Session, space_id: str) -> dict[str, Any]:
     """最近一次推送的状态，给回顾页与概览做提示。"""
-    latest = SqlAlchemyReviewRepository(db).latest()
+    latest = SqlAlchemyReviewRepository(db, space_id).latest()
     if latest is None:
         return {"status": "none", "detail": "", "at": None, "report_id": None}
     push = (latest.metrics or {}).get("push", {})

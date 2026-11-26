@@ -45,27 +45,45 @@ def _trigger() -> CronTrigger:
 
 
 def _run_job() -> None:
-    """调度触发：生成一份 7 天报告并推送。"""
+    """调度触发：**每个空间各生成一份** 7 天报告并推送。
+
+    报告是空间级的（"你们小组这周学了什么"），所以不能只跑一个默认空间。
+    单个空间失败不影响其他空间——一个小组的模型调用挂了不该拖垮所有人。
+    """
+    from app.infrastructure.db.models import SpaceORM
     from app.infrastructure.db.session import SessionLocal
     from app.services import review_service
 
     db = SessionLocal()
     try:
-        report = asyncio.run(review_service.generate_report(db, 7, trigger="schedule"))
-        logger.info("定时回顾已生成：%s", report.id)
-
-        if not settings.smtp_configured:
-            review_service.mark_push(db, report, False, "尚未配置 SMTP，报告只保存在本地")
+        space_ids = [row[0] for row in db.query(SpaceORM.id).all()]
+        if not space_ids:
+            logger.info("还没有任何空间，跳过定时回顾")
             return
 
-        from app.infrastructure.mail.smtp_notifier import build_notifier
+        for space_id in space_ids:
+            try:
+                report = asyncio.run(
+                    review_service.generate_report(db, space_id, 7, trigger="schedule")
+                )
+                logger.info("定时回顾已生成：%s（空间 %s）", report.id, space_id)
 
-        result = build_notifier().send_report(report)
-        review_service.mark_push(db, report, result.ok, result.detail)
-        if result.ok:
-            logger.info("定时回顾已推送：%s", result.detail)
-        else:
-            logger.warning("定时回顾推送失败：%s", result.detail)
+                if not settings.smtp_configured:
+                    review_service.mark_push(
+                        db, report, False, "尚未配置 SMTP，报告只保存在本地", space_id
+                    )
+                    continue
+
+                from app.infrastructure.mail.smtp_notifier import build_notifier
+
+                result = build_notifier().send_report(report)
+                review_service.mark_push(db, report, result.ok, result.detail, space_id)
+                if result.ok:
+                    logger.info("定时回顾已推送：%s", result.detail)
+                else:
+                    logger.warning("定时回顾推送失败：%s", result.detail)
+            except Exception as exc:  # noqa: BLE001 - 单个空间失败不中断整轮
+                logger.exception("空间 %s 的定时回顾失败：%s", space_id, exc)
     except Exception as exc:  # noqa: BLE001
         logger.exception("定时回顾执行失败：%s", exc)
     finally:

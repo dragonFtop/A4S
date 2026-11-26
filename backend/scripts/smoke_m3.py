@@ -30,7 +30,8 @@ if TEST_DB.exists():
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.main import app  # noqa: E402
+from app.main import app
+from scripts._auth import login  # noqa: E402
 from app.services import chat_service  # noqa: E402
 
 PASSED: list[str] = []
@@ -92,6 +93,7 @@ def wait_ready(client: TestClient, document_id: str, timeout: int = 120) -> str:
 def main() -> int:
     want_real = "--real" in sys.argv
     with TestClient(app) as client:
+        login(client)
         print("\n== 1. 空库兜底 ==")
         # 空库现在也要作答（先声明知识库为空，再用通用知识回答），
         # 所以这一段需要"有 Key + 假模型"：假模型不会真的联网，只负责把流跑完。
@@ -160,19 +162,32 @@ def _run_scope_tests(client, topic_id, tag_id, doc_a, doc_b, want_real):
     from app.infrastructure.db.session import SessionLocal
     from app.services import chat_service as cs
 
+    space_id = client.get("/api/auth/me").json()["current_space"]["id"]
     db = SessionLocal()
     try:
         print("\n== 4. 检索与范围 ==")
-        citations, blocks, _ = cs.retrieve(db, "按主题问答为什么要在分区内取 Top-K？")
+        citations, blocks, _ = cs.retrieve(
+            db, "按主题问答为什么要在分区内取 Top-K？", space_id=space_id
+        )
         check("全库检索有引用", len(citations) >= 1, str(len(citations)))
         check("引用带序号与文档名", citations[0]["index"] == 1 and citations[0]["document_name"], str(citations[0])[:120])
         check("引用带片段摘要", bool(citations[0]["snippet"]))
         check("资料块带 [n] 标记", blocks and blocks[0].startswith("[1] 《"), blocks[0][:40] if blocks else "")
 
-        part_cites, _, _ = cs.retrieve(db, "按主题问答为什么要在分区内取 Top-K？", topic_id=topic_id)
+        part_cites, _, _ = cs.retrieve(
+            db,
+            "按主题问答为什么要在分区内取 Top-K？",
+            space_id=space_id,
+            topic_id=topic_id,
+        )
         check("主题分区检索命中", len(part_cites) >= 1)
 
-        tag_cites, _, _ = cs.retrieve(db, "按主题问答为什么要在分区内取 Top-K？", tag_ids=[tag_id])
+        tag_cites, _, _ = cs.retrieve(
+            db,
+            "按主题问答为什么要在分区内取 Top-K？",
+            space_id=space_id,
+            tag_ids=[tag_id],
+        )
         check("标签白名单检索命中带标签资料", len(tag_cites) >= 1)
         check(
             "标签过滤只留打标资料",
@@ -180,14 +195,21 @@ def _run_scope_tests(client, topic_id, tag_id, doc_a, doc_b, want_real):
             str([c["document_name"] for c in tag_cites]),
         )
 
-        doc_cites, _, _ = cs.retrieve(db, "按主题问答为什么要在分区内取 Top-K？", document_ids=[doc_b["id"]])
+        doc_cites, _, _ = cs.retrieve(
+            db,
+            "按主题问答为什么要在分区内取 Top-K？",
+            space_id=space_id,
+            document_ids=[doc_b["id"]],
+        )
         check(
             "资料白名单命中另一篇",
             all(c["document_name"] == "二分查找说明" for c in doc_cites),
             str([c["document_name"] for c in doc_cites]),
         )
 
-        empty_cites, _, _ = cs.retrieve(db, "任意问题", document_ids=["no-such-doc"])
+        empty_cites, _, _ = cs.retrieve(
+            db, "任意问题", space_id=space_id, document_ids=["no-such-doc"]
+        )
         check("白名单为空 → 无引用", empty_cites == [])
 
         print("\n== 5. 历史裁剪 ==")

@@ -5,7 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.domain.models.entities import UNCATEGORIZED_ID, Topic, TopicKind
+from app.api.deps import get_current_space
+from app.domain.models.entities import UNCATEGORIZED_ID, Space, Topic, TopicKind
 from app.infrastructure.db.seed import load_topic_packs, topic_seeded
 from app.infrastructure.db.session import get_db
 from app.repositories.sqlalchemy_repo import SqlAlchemyTopicRepository
@@ -38,17 +39,21 @@ def _out(topic: Topic) -> TopicOut:
 
 
 @router.get("", response_model=TopicListOut)
-def list_topics(db: Session = Depends(get_db)) -> TopicListOut:
+def list_topics(
+    space: Space = Depends(get_current_space), db: Session = Depends(get_db)
+) -> TopicListOut:
     repo = SqlAlchemyTopicRepository(db)
     return TopicListOut(
-        topics=[_out(t) for t in repo.list(TopicKind.TOPIC)],
-        tags=[_out(t) for t in repo.list(TopicKind.TAG)],
+        topics=[_out(t) for t in repo.list(space.id, TopicKind.TOPIC)],
+        tags=[_out(t) for t in repo.list(space.id, TopicKind.TAG)],
     )
 
 
 @router.get("/seeded", response_model=SeededOut)
-def seeded(db: Session = Depends(get_db)) -> SeededOut:
-    return SeededOut(seeded=topic_seeded(db))
+def seeded(
+    space: Space = Depends(get_current_space), db: Session = Depends(get_db)
+) -> SeededOut:
+    return SeededOut(seeded=topic_seeded(db, space.id))
 
 
 @router.get("/packs", response_model=list[PackOut])
@@ -66,16 +71,25 @@ def list_packs() -> list[PackOut]:
 
 
 @router.post("/packs", response_model=ApplyPacksOut)
-def apply_packs(payload: ApplyPacksIn, db: Session = Depends(get_db)) -> ApplyPacksOut:
-    result = topic_service.seed_packs(db, payload.pack_ids)
+def apply_packs(
+    payload: ApplyPacksIn,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> ApplyPacksOut:
+    result = topic_service.seed_packs(db, payload.pack_ids, space.id)
     return ApplyPacksOut(**result)
 
 
 @router.post("", response_model=TopicOut, status_code=201)
-def create_topic(payload: TopicCreate, db: Session = Depends(get_db)) -> TopicOut:
+def create_topic(
+    payload: TopicCreate,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> TopicOut:
     try:
         topic = topic_service.create_topic(
             db,
+            space_id=space.id,
             name=payload.name,
             kind=TopicKind(payload.kind),
             color=payload.color,
@@ -88,11 +102,17 @@ def create_topic(payload: TopicCreate, db: Session = Depends(get_db)) -> TopicOu
 
 
 @router.patch("/{topic_id}", response_model=TopicOut)
-def update_topic(topic_id: str, payload: TopicUpdate, db: Session = Depends(get_db)) -> TopicOut:
+def update_topic(
+    topic_id: str,
+    payload: TopicUpdate,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> TopicOut:
     try:
         topic = topic_service.update_topic(
             db,
             topic_id,
+            space_id=space.id,
             name=payload.name,
             color=payload.color,
             sort_order=payload.sort_order,
@@ -109,9 +129,13 @@ def update_topic(topic_id: str, payload: TopicUpdate, db: Session = Depends(get_
 
 
 @router.delete("/{topic_id}")
-def delete_topic(topic_id: str, db: Session = Depends(get_db)) -> dict:
+def delete_topic(
+    topic_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> dict:
     try:
-        return topic_service.delete_topic(db, topic_id)
+        return topic_service.delete_topic(db, topic_id, space.id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except TopicProtected as exc:

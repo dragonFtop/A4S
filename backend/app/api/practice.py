@@ -16,6 +16,8 @@ from app.domain.models.entities import (
     Question,
     WrongAnswer,
 )
+from app.api.deps import get_current_space
+from app.domain.models.entities import Space
 from app.infrastructure.db.session import get_db
 from app.repositories.sqlalchemy_repo import SqlAlchemyTopicRepository
 from app.schemas.practice import (
@@ -143,11 +145,13 @@ def practice_meta() -> PracticeMetaOut:
 def generate(
     payload: GenerateIn,
     background: BackgroundTasks,
+    space: Space = Depends(get_current_space),
     db: Session = Depends(get_db),
 ) -> GenerationJobOut:
     try:
         job = practice_service.start_generation(
             db,
+            space_id=space.id,
             counts=payload.counts,
             topic_ids=payload.topic_ids,
             document_ids=payload.document_ids,
@@ -170,23 +174,38 @@ def job(job_id: str) -> GenerationJobOut:
 
 
 @router.get("/sessions", response_model=list[SessionBriefOut])
-def list_sessions(limit: int = 20, db: Session = Depends(get_db)) -> list[SessionBriefOut]:
-    return [_brief_out(session) for session in practice_service.list_sessions(db, limit=limit)]
+def list_sessions(
+    limit: int = 20,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> list[SessionBriefOut]:
+    return [
+        _brief_out(session)
+        for session in practice_service.list_sessions(db, space.id, limit=limit)
+    ]
 
 
 @router.get("/sessions/{session_id}", response_model=SessionOut)
-def get_session(session_id: str, db: Session = Depends(get_db)) -> SessionOut:
+def get_session(
+    session_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> SessionOut:
     try:
-        session = practice_service.get_session(db, session_id)
+        session = practice_service.get_session(db, session_id, space.id)
     except PracticeNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _session_out(session)
 
 
 @router.delete("/sessions/{session_id}")
-def delete_session(session_id: str, db: Session = Depends(get_db)) -> dict:
+def delete_session(
+    session_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> dict:
     try:
-        practice_service.delete_session(db, session_id)
+        practice_service.delete_session(db, session_id, space.id)
     except PracticeNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PracticeError as exc:
@@ -196,10 +215,15 @@ def delete_session(session_id: str, db: Session = Depends(get_db)) -> dict:
 
 @router.delete("/sessions/{session_id}/questions/{question_id}", response_model=SessionOut)
 def remove_question(
-    session_id: str, question_id: str, db: Session = Depends(get_db)
+    session_id: str,
+    question_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
 ) -> SessionOut:
     try:
-        session = practice_service.remove_question(db, session_id, question_id)
+        session = practice_service.remove_question(
+            db, session_id, question_id, space.id
+        )
     except PracticeNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PracticeError as exc:
@@ -211,10 +235,14 @@ def remove_question(
 
 
 @router.post("/sessions/{session_id}/start", response_model=SessionOut)
-def start_session(session_id: str, db: Session = Depends(get_db)) -> SessionOut:
+def start_session(
+    session_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> SessionOut:
     """进入作答。幂等：已经开始了再点一次只是拿回当前进度。"""
     try:
-        session = practice_service.start_session(db, session_id)
+        session = practice_service.start_session(db, session_id, space.id)
     except PracticeNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PracticeError as exc:
@@ -224,7 +252,10 @@ def start_session(session_id: str, db: Session = Depends(get_db)) -> SessionOut:
 
 @router.patch("/sessions/{session_id}/answers", response_model=SessionOut)
 def save_answer(
-    session_id: str, payload: AnswerIn, db: Session = Depends(get_db)
+    session_id: str,
+    payload: AnswerIn,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
 ) -> SessionOut:
     """逐题自动保存：断点续答靠它，不靠浏览器的本地缓存。"""
     try:
@@ -232,6 +263,7 @@ def save_answer(
             db,
             session_id,
             payload.question_id,
+            space.id,
             response=payload.response,
             duration_seconds=payload.duration_seconds,
             self_grade=payload.self_grade,
@@ -245,11 +277,14 @@ def save_answer(
 
 @router.post("/sessions/{session_id}/submit", response_model=SessionOut)
 def submit(
-    session_id: str, payload: SubmitIn, db: Session = Depends(get_db)
+    session_id: str,
+    payload: SubmitIn,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
 ) -> SessionOut:
     try:
         session, _score = practice_service.submit_session(
-            db, session_id, [item.model_dump() for item in payload.answers]
+            db, session_id, [item.model_dump() for item in payload.answers], space.id
         )
     except PracticeNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -261,8 +296,10 @@ def submit(
 # ---------- 错题本（FR-06） ----------
 
 
-def _topic_names(db: Session) -> dict[str, str]:
-    return {topic.id: topic.name for topic in SqlAlchemyTopicRepository(db).list()}
+def _topic_names(db: Session, space: Space) -> dict[str, str]:
+    return {
+        topic.id: topic.name for topic in SqlAlchemyTopicRepository(db).list(space.id)
+    }
 
 
 def _wrong_out(item: WrongAnswer, topics: dict[str, str]) -> WrongOut:
@@ -281,8 +318,12 @@ def _wrong_out(item: WrongAnswer, topics: dict[str, str]) -> WrongOut:
 
 
 @router.get("/wrong-answers/summary", response_model=WrongSummaryOut)
-def wrong_summary(days: int | None = None, db: Session = Depends(get_db)) -> WrongSummaryOut:
-    return WrongSummaryOut(**practice_service.wrong_summary(db, days=days))
+def wrong_summary(
+    days: int | None = None,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> WrongSummaryOut:
+    return WrongSummaryOut(**practice_service.wrong_summary(db, space_id=space.id, days=days))
 
 
 @router.get("/wrong-answers", response_model=list[WrongOut])
@@ -294,10 +335,12 @@ def list_wrong_answers(
     min_wrong: int | None = None,
     sort: str = "recent",
     limit: int = 200,
+    space: Space = Depends(get_current_space),
     db: Session = Depends(get_db),
 ) -> list[WrongOut]:
     items = practice_service.list_wrong_answers(
         db,
+        space_id=space.id,
         topic_id=topic_id,
         document_id=document_id,
         question_type=type,
@@ -306,25 +349,34 @@ def list_wrong_answers(
         sort=sort if sort in {"recent", "count"} else "recent",
         limit=max(1, min(limit, 500)),
     )
-    topics = _topic_names(db)
+    topics = _topic_names(db, space)
     return [_wrong_out(item, topics) for item in items]
 
 
 @router.delete("/wrong-answers/{wrong_id}")
-def remove_wrong_answer(wrong_id: str, db: Session = Depends(get_db)) -> dict:
+def remove_wrong_answer(
+    wrong_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> dict:
     try:
-        practice_service.remove_wrong_answer(db, wrong_id)
+        practice_service.remove_wrong_answer(db, wrong_id, space.id)
     except PracticeNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"deleted": wrong_id}
 
 
 @router.post("/retry", response_model=SessionOut, status_code=201)
-def retry(payload: RetryIn, db: Session = Depends(get_db)) -> SessionOut:
+def retry(
+    payload: RetryIn,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> SessionOut:
     """从错题组卷。不复用出题链路——重练的是同一道题，不该再让模型换一种问法。"""
     try:
         session = practice_service.start_retry(
-            db, wrong_ids=payload.wrong_ids or None, limit=payload.limit
+            db,
+            space_id=space.id, wrong_ids=payload.wrong_ids or None, limit=payload.limit
         )
     except PracticeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

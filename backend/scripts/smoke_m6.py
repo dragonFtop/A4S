@@ -34,7 +34,8 @@ if TEST_DB.exists():
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.main import app  # noqa: E402
+from app.main import app
+from scripts._auth import login  # noqa: E402
 
 PASSED: list[str] = []
 FAILED: list[str] = []
@@ -80,6 +81,7 @@ CONTENT = (
 
 def main() -> int:
     with TestClient(app) as client:
+        login(client)
         print("\n== 1. 坏文件与不支持格式 ==")
         bad_ext = client.post(
             "/api/documents/upload",

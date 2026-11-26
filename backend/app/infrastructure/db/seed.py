@@ -29,13 +29,17 @@ def load_topic_packs() -> dict:
         return json.load(fh)
 
 
-def ensure_builtin(db: Session) -> None:
-    """确保「未分类」主题存在。documents.topic_id 的默认值指向它。"""
-    exists = db.get(TopicORM, UNCATEGORIZED_ID)
+def ensure_builtin(db: Session, space_id: str) -> None:
+    """确保这个空间的「未分类」主题存在。新建空间时必须调用一次。
+
+    主题是空间私有的，所以两个小组各自有一份「未分类」，id 相同但主键含 space_id。
+    """
+    exists = db.get(TopicORM, (space_id, UNCATEGORIZED_ID))
     if exists is not None:
         return
     db.add(
         TopicORM(
+            space_id=space_id,
             id=UNCATEGORIZED_ID,
             name=UNCATEGORIZED_NAME,
             kind=TopicKind.TOPIC.value,
@@ -43,15 +47,19 @@ def ensure_builtin(db: Session) -> None:
             sort_order=10_000,  # 永远排在最后
         )
     )
-    db.commit()
+    db.flush()
 
 
-def _existing_names(db: Session, kind: str) -> set[str]:
-    rows = db.execute(select(TopicORM.name).where(TopicORM.kind == kind)).scalars()
+def _existing_names(db: Session, kind: str, space_id: str) -> set[str]:
+    rows = db.execute(
+        select(TopicORM.name).where(
+            TopicORM.kind == kind, TopicORM.space_id == space_id
+        )
+    ).scalars()
     return set(rows)
 
 
-def apply_topic_packs(db: Session, pack_ids: list[str]) -> dict:
+def apply_topic_packs(db: Session, pack_ids: list[str], space_id: str) -> dict:
     """按包创建主题与默认标签。返回新建数量与跳过的包。"""
     data = load_topic_packs()
     packs = {p["id"]: p for p in data["packs"]}
@@ -60,8 +68,8 @@ def apply_topic_packs(db: Session, pack_ids: list[str]) -> dict:
     created_tags = 0
     skipped_packs: list[str] = []
 
-    existing_topics = _existing_names(db, TopicKind.TOPIC.value)
-    existing_tags = _existing_names(db, TopicKind.TAG.value)
+    existing_topics = _existing_names(db, TopicKind.TOPIC.value, space_id)
+    existing_tags = _existing_names(db, TopicKind.TAG.value, space_id)
     # 递增计数器：不能用 offset，否则多个包之间会撞号
     order_counter = len(existing_topics)
 
@@ -76,6 +84,7 @@ def apply_topic_packs(db: Session, pack_ids: list[str]) -> dict:
             order_counter += 1
             db.add(
                 TopicORM(
+                    space_id=space_id,
                     id=str(uuid.uuid4()),
                     name=item["name"],
                     kind=TopicKind.TOPIC.value,
@@ -92,6 +101,7 @@ def apply_topic_packs(db: Session, pack_ids: list[str]) -> dict:
             continue
         db.add(
             TopicORM(
+                space_id=space_id,
                 id=str(uuid.uuid4()),
                 name=item["name"],
                 kind=TopicKind.TAG.value,
@@ -110,11 +120,12 @@ def apply_topic_packs(db: Session, pack_ids: list[str]) -> dict:
     }
 
 
-def topic_seeded(db: Session) -> bool:
-    """是否已有除「未分类」之外的主题——用于判断要不要展示引导层。"""
+def topic_seeded(db: Session, space_id: str) -> bool:
+    """这个空间是否已有除「未分类」之外的主题——用于判断要不要展示引导层。"""
     row = db.execute(
         select(TopicORM.id)
         .where(TopicORM.kind == TopicKind.TOPIC.value)
+        .where(TopicORM.space_id == space_id)
         .where(TopicORM.id != UNCATEGORIZED_ID)
         .limit(1)
     ).first()
