@@ -29,6 +29,8 @@ from sqlalchemy.engine import Engine
 logger = logging.getLogger(__name__)
 
 TABLE = "notes_fts"
+# 片段索引：问答的第二路召回。和笔记分开两张表，字段与排序权重都不同。
+CHUNKS_TABLE = "chunks_fts"
 
 # 汉字与常用中日韩标点：逐字切开；ASCII/数字保持整词
 _CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
@@ -54,6 +56,16 @@ def ensure_schema(engine: Engine) -> bool:
                     f"""CREATE VIRTUAL TABLE IF NOT EXISTS {TABLE} USING fts5(
                         note_id UNINDEXED,
                         title,
+                        body,
+                        tokenize = 'unicode61'
+                    )"""
+                )
+            )
+            # 片段只有正文，没有标题，所以不设字段权重
+            conn.execute(
+                text(
+                    f"""CREATE VIRTUAL TABLE IF NOT EXISTS {CHUNKS_TABLE} USING fts5(
+                        chunk_id UNINDEXED,
                         body,
                         tokenize = 'unicode61'
                     )"""
@@ -103,3 +115,105 @@ def _phrase(keyword: str) -> str:
     if len(tokens) == 1:
         return f'"{tokens[0]}"'
     return '"' + " ".join(tokens) + '"'
+
+
+# ---------------------------------------------------------------- 片段索引（问答召回用）
+
+# 单字停用：出现频率极高，作为检索条件只会灌进来一堆无关片段。
+# 注意只用于**查询侧**，索引侧仍然全量写入（否则「的」这类字永远搜不到）。
+_STOP_CHARS = set("的了吗呢吧啊呀嘛是在和与也就都而及或有着过被把让给向从对为以于")
+
+_NON_CJK = re.compile(r"[A-Za-z0-9]+")
+
+
+def _chunk_query(keyword: str) -> str:
+    """把问题变成 FTS 查询串：中文按二元组、英文按整词，组间取 OR。
+
+    为什么不用笔记那套「整句短语」：那要求字符连续，而提问几乎不可能在原文里
+    连续出现（"CBC 模式为什么需要 IV" 不会原样躺在资料里）。二元组 OR 能召回
+    "CBC 模式" 和 "初始化向量" 这类片段，噪音交给后面的 RRF 排名压下去。
+    """
+    text = (keyword or "").strip()
+    if not text:
+        return ""
+
+    terms: list[str] = []
+    for word in _NON_CJK.findall(text):
+        terms.append(f'"{word.lower()}"')
+
+    for run in re.findall(r"[\u4e00-\u9fff]+", text):
+        chars = [ch for ch in run if ch not in _STOP_CHARS]
+        joined = "".join(chars)
+        if len(joined) == 1:
+            terms.append(f'"{joined}"')
+        for i in range(len(joined) - 1):
+            # 关键：索引里是「明 文」（逐字一个 token），查询也必须逐字切开。
+            # unicode61 不切中文，"明文" 会被当成**一个** token，永远匹配不上。
+            terms.append(f'"{char_split(joined[i:i + 2])}"')
+
+    # 去重保序，避免 "模式模式" 这类重复项把查询撑长
+    unique = list(dict.fromkeys(terms))
+    return " OR ".join(unique)
+
+
+def upsert_chunks(conn, items: list[tuple[str, str]]) -> None:
+    """同事务批量写片段索引。items = [(chunk_id, text)]。"""
+    if not items:
+        return
+    for chunk_id, body in items:
+        conn.execute(
+            text(f"DELETE FROM {CHUNKS_TABLE} WHERE chunk_id = :c"), {"c": chunk_id}
+        )
+        conn.execute(
+            text(f"INSERT INTO {CHUNKS_TABLE}(chunk_id, body) VALUES (:c, :b)"),
+            {"c": chunk_id, "b": char_split(body)},
+        )
+
+
+def remove_chunks(conn, chunk_ids: list[str]) -> None:
+    if not chunk_ids:
+        return
+    for chunk_id in chunk_ids:
+        conn.execute(
+            text(f"DELETE FROM {CHUNKS_TABLE} WHERE chunk_id = :c"), {"c": chunk_id}
+        )
+
+
+def remove_chunks_by_document(conn, document_ids: list[str]) -> None:
+    """删资料时清索引：chunks_fts 不认得 document_id，只能先拿到片段 id 再删。"""
+    if not document_ids:
+        return
+    rows = conn.execute(
+        text(
+            "SELECT id FROM chunks WHERE document_id IN "
+            f"({', '.join('?' * len(document_ids))})"
+        ),
+        list(document_ids),
+    ).fetchall()
+    remove_chunks(conn, [row[0] for row in rows])
+
+
+def search_chunks(conn, keyword: str, limit: int = 50) -> list[tuple[str, float]]:
+    """返回 [(chunk_id, bm25)]，bm25 越小越相关（FTS5 返回负值）。"""
+    query = _chunk_query(keyword)
+    if not query:
+        return []
+    rows = conn.execute(
+        text(
+            f"""SELECT chunk_id, bm25({CHUNKS_TABLE}) AS s
+                FROM {CHUNKS_TABLE}
+                WHERE {CHUNKS_TABLE} MATCH :q
+                ORDER BY s
+                LIMIT :k"""
+        ),
+        {"q": query, "k": limit},
+    ).fetchall()
+    return [(row[0], float(row[1])) for row in rows]
+
+
+def rebuild_chunk_index(conn) -> int:
+    """全量重建片段索引（索引重建/维度变更后调用）。返回写入条数。"""
+    conn.execute(text(f"DELETE FROM {CHUNKS_TABLE}"))
+    rows = conn.execute(text("SELECT id, text FROM chunks")).fetchall()
+    upsert_chunks(conn, [(row[0], row[1] or "") for row in rows])
+    return len(rows)

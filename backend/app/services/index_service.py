@@ -26,7 +26,12 @@ from typing import Any
 
 from app.config import settings
 from app.infrastructure.config_store import save_settings
-from app.infrastructure.db.session import VEC_ENABLED, SessionLocal, get_vector_store
+from app.infrastructure.db.session import (
+    FTS_ENABLED,
+    VEC_ENABLED,
+    SessionLocal,
+    get_vector_store,
+)
 from app.infrastructure.llm.bge_local import build_embedding
 from app.repositories.sqlalchemy_repo import SqlAlchemyChunkRepository
 
@@ -171,6 +176,17 @@ def run_rebuild() -> None:
                 done += len(part)
                 _set_job(done=done)
             offset += len(page)
+
+        # 全文索引跟着一起重建：它不依赖向量维度，但和向量一样会与片段表脱节
+        if FTS_ENABLED:
+            try:
+                from app.infrastructure.db import fts
+
+                rows = fts.rebuild_chunk_index(db.connection())
+                db.commit()
+                logger.info("片段全文索引已重建：%s 条", rows)
+            except Exception as exc:  # noqa: BLE001 - 全文索引失败不影响向量重建结果
+                logger.warning("片段全文索引重建失败：%s", exc)
 
         _set_job(
             state="done",

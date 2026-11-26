@@ -51,6 +51,11 @@ from app.services import chat_prompts
 logger = logging.getLogger(__name__)
 
 TOP_K = 5
+# 每路各取多少候选再融合。取 3 倍是为了让"只在另一路排得靠前"的片段也有机会进来。
+CANDIDATES_PER_ROUTE = TOP_K * 3
+# RRF 的平滑常数。60 是原论文的取值：让排名 1 和排名 2 的分差不过分悬殊，
+# 避免某一路的头名直接吃掉全部权重。
+RRF_K = 60
 # 低于此值直接丢弃：实测无关提问最高 0.46，相关提问最低 0.55
 MIN_SIMILARITY = 0.42
 # 低于此值算"擦边命中"，提示词里要额外提醒模型先判断片段是否真的能回答
@@ -66,6 +71,27 @@ SNIPPET_CHARS = 240
 
 def _event(name: str, data: dict) -> str:
     return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _rrf(*rankings: list[str]) -> dict[str, float]:
+    """Reciprocal Rank Fusion：只看名次，不看原始分数。
+
+    两路分数的量纲天然不同（向量是余弦距离，全文是 bm25），直接加权会让
+    分数量级大的那一路说了算。RRF 把它们都压成「第几名」，再按 1/(k+rank)
+    求和，跨尺度可比，也不需要调权重。
+    """
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, chunk_id in enumerate(ranking):
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (RRF_K + rank + 1)
+    return scores
+
+
+def _matched_label(similarity: float | None, keyword: bool) -> str:
+    """这条片段是被哪一路找出来的，给界面与排查用。"""
+    if similarity is not None and keyword:
+        return "both"
+    return "keyword" if keyword else "vector"
 
 
 def retrieve(
@@ -101,7 +127,34 @@ def retrieve(
             return [], [], 0.0
 
     vector = _embed_query(question)
-    hits = store.search(vector, top_k=TOP_K, topic_id=topic_id, allowed_chunk_ids=allowed)
+    hits = store.search(
+        vector, top_k=CANDIDATES_PER_ROUTE, topic_id=topic_id, allowed_chunk_ids=allowed
+    )
+    vec_sim = {chunk_id: 1.0 - distance for chunk_id, distance in hits}
+
+    # 第二路：全文。中文按二元组 OR 召回，补的是"向量没命中但字面对得上"的情况
+    # —— 专有名词、编号、公式符号这类，向量化之后往往就糊了。
+    keyword_ids: list[str] = []
+    from app.infrastructure.db import fts
+    from app.infrastructure.db.session import FTS_ENABLED
+
+    if FTS_ENABLED:
+        try:
+            raw = fts.search_chunks(db.connection(), question, limit=CANDIDATES_PER_ROUTE)
+            keyword_ids = [chunk_id for chunk_id, _ in raw]
+            if allowed is not None:
+                # 全文路也要服从"按资料/标签圈定"的范围，否则会捞到范围外的东西
+                keyword_ids = [cid for cid in keyword_ids if cid in allowed]
+        except Exception as exc:  # noqa: BLE001 - 全文路挂了不该让问答整体失败
+            logger.warning("全文召回失败，本次只用向量结果：%s", exc)
+            keyword_ids = []
+
+    # 融合只在**名次**上做：向量给的是距离、全文给的是 bm25，两者量纲不同，
+    # 直接加权会被其中一路吞掉（RAGFlow 能加权是因为它两路都在 ES 里算）。
+    fused = _rrf([cid for cid, _ in hits], keyword_ids)
+    ordered = sorted(fused.items(), key=lambda item: -item[1])
+    keyword_set = set(keyword_ids)
+
     # 注意：best 必须在**空间过滤之后**才算。原始 hits 里混着别的空间的高分片段，
     # 拿它判断"这条问题有没有依据"会误判（bob 会拿到 alice 资料的分数）。
     best = 0.0
@@ -119,14 +172,23 @@ def retrieve(
     citations: list[dict] = []
     blocks: list[str] = []
     used = 0
-    for chunk_id, distance in hits:
-        similarity = 1.0 - distance
-        if similarity < MIN_SIMILARITY:
+    for chunk_id, fused_score in ordered:
+        if len(citations) >= TOP_K:
+            break
+        similarity = vec_sim.get(chunk_id)
+        matched_keyword = chunk_id in keyword_set
+        # 只被向量召回、且分数低于阈值 → 丢弃（原来的行为）。
+        # 但**字面命中**的即使向量分低也保留：专有名词被向量化糊掉是常态，
+        # 字面对上往往比"看起来像"更可信。
+        if similarity is not None and not matched_keyword and similarity < MIN_SIMILARITY:
+            continue
+        if similarity is None and not matched_keyword:
             continue
         chunk = chunk_repo.get(chunk_id, space_id)
         if chunk is None:
             continue
-        best = max(best, similarity)
+        if similarity is not None:
+            best = max(best, similarity)
         block = chunk.text.strip()
         if used + len(block) > MAX_CONTEXT_CHARS:
             break
@@ -141,6 +203,11 @@ def retrieve(
                 "document_name": name,
                 "snippet": block[:SNIPPET_CHARS],
                 "page": chunk.page,
+                # 可观测：这个片段是被哪一路找出来的、各自多少分。
+                # 排查"为什么这条被引用"时不用再猜。
+                "score": round(fused_score, 5),
+                "vector_sim": None if similarity is None else round(similarity, 3),
+                "matched": _matched_label(similarity, matched_keyword),
             }
         )
         source = name or "资料"

@@ -234,6 +234,19 @@ def _process(db, doc: Document) -> int:
 
     chunk_repo.add_many(chunks)
     store.add([(chunk.id, vector, chunk.topic_id) for chunk, vector in zip(chunks, vectors)])
+
+    # 全文索引跟着片段一起写：这是问答第二路召回的数据来源。
+    # 与向量索引不同，它不依赖模型，失败也不会让入库失败（下次重建可补）。
+    from app.infrastructure.db import fts
+    from app.infrastructure.db.session import FTS_ENABLED
+
+    if FTS_ENABLED:
+        try:
+            fts.upsert_chunks(db.connection(), [(c.id, c.text) for c in chunks])
+            db.commit()
+        except Exception as exc:  # noqa: BLE001 - 索引失败不该拖垮入库
+            logger.warning("片段全文索引写入失败（可从设置页重建）：%s", exc)
+
     return len(chunks)
 
 
@@ -262,6 +275,15 @@ def delete_document(db, document_id: str, space_id: str) -> None:
     chunk_ids = [c.id for c in chunk_repo.list_by_document(document_id)]
     if chunk_ids:
         get_vector_store().delete_chunks(chunk_ids)
+        from app.infrastructure.db import fts
+        from app.infrastructure.db.session import FTS_ENABLED
+
+        if FTS_ENABLED:
+            try:
+                fts.remove_chunks(db.connection(), chunk_ids)
+                db.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("片段全文索引删除失败：%s", exc)
 
     docs.delete(document_id, space_id)  # 仓储内部级联删 chunks 与 document_tags
 
