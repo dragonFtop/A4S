@@ -93,10 +93,29 @@ def main() -> int:
     want_real = "--real" in sys.argv
     with TestClient(app) as client:
         print("\n== 1. 空库兜底 ==")
-        r = client.post("/api/chat", json={"question": "什么是向量检索？"})
-        events = parse_sse(r.text)
-        check("空库返回 no_context", events and events[0][0] == "no_context", str(events[:1]))
-        check("提示文案可读", "知识库" in events[0][1].get("detail", ""))
+        # 空库现在也要作答（先声明知识库为空，再用通用知识回答），
+        # 所以这一段需要"有 Key + 假模型"：假模型不会真的联网，只负责把流跑完。
+        settings.llm_api_key = "test-key"
+        original_build = chat_service.build_llm
+        chat_service.build_llm = lambda: FakeLLM()
+        try:
+            r = client.post("/api/chat", json={"question": "什么是向量检索？"})
+            events = parse_sse(r.text)
+            names = [name for name, _ in events]
+            check("空库返回 no_context", events and names[0] == "no_context", str(events[:1]))
+            check("提示文案可读", "知识库" in events[0][1].get("detail", ""))
+            check("空库声明 reason=empty", events[0][1].get("reason") == "empty", str(events[:1]))
+            check("空库声明 fallback=True", events[0][1].get("fallback") is True)
+            # 本轮改动：空库不再只声明，声明之后要继续用通用知识作答
+            check("空库仍然作答", names.count("delta") >= 1, str(names))
+            check("空库以 done 收尾", names[-1] == "done", str(names))
+            check("空库不返回来源", "sources" not in names, str(names))
+            # 无依据作答不能把资料片段塞进提示词，否则就成了"假装有出处"
+            grounded = [m for m in CAPTURED[-1] if m["role"] == "user" and "《" in m["content"]]
+            check("无依据提示词不含来源块", not grounded, str(grounded)[:80])
+        finally:
+            chat_service.build_llm = original_build
+            settings.llm_api_key = ""
 
         print("\n== 2. 准备资料（真实切分与向量化）==")
         r = client.post("/api/topics", json={"name": "问答冒烟", "kind": "topic"})

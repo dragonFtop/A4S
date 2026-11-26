@@ -3,7 +3,8 @@
 POST /api/chat 返回 SSE 流：
 - `sources`：引用列表（先生成，前端先渲染来源卡片再等正文）
 - `delta`：增量正文
-- `no_context`：范围内没有相关内容（不调用模型）
+- `no_context`：没检索到依据，随后仍会用通用知识作答（`fallback=true`）；
+  知识库为空时 `reason=empty`，有资料但本次没召回时 `reason=no_match`
 - `error`：模型侧或配置侧错误
 """
 

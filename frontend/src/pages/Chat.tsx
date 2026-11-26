@@ -54,6 +54,9 @@ interface Turn {
  * - 压根没有来源：连检索都没命中
  */
 function aiNote(turn: Turn): string {
+  if (turn.noContext?.reason === 'empty') {
+    return '以上内容由 AI 自动生成，当前知识库中没有资料，未经任何原文核对，请注意甄别'
+  }
   if (!turn.sources?.length) return '以下内容由 AI 生成，未使用你的资料，请注意甄别'
   if (!/\[\d+\]/.test(turn.content)) return '本回答由 AI 生成，且未标注引用，结论未与资料核对'
   return '本回答由 AI 生成，可能有误，请以下方引用原文为准'
@@ -137,7 +140,9 @@ export default function Chat() {
             setMessages((prev) =>
               prev.map((m, i) => (i === assistantIndex ? { ...m, content: m.content + t } : m)),
             ),
-          onNoContext: (info) => patch({ noContext: info, done: true }),
+          onNoContext: (info) =>
+            // 会继续作答时不置 done：AI 声明要等正文写完再出现，否则会跟着打字闪
+            patch({ noContext: info, done: !info.fallback }),
           onError: (detail) => patch({ error: detail, done: true }),
           onDone: () => patch({ done: true }),
         },
@@ -197,7 +202,8 @@ export default function Chat() {
             <HelpTip label="了解问答的依据">
               回答前先检索相关片段（最相关的 5 个，相似度 0.42 以上），正文角标可点开看原文。
               检索不到时不会拿无关片段硬答：先声明"没有找到相关资料"，再改用模型自己的通用知识回答，
-              这段回答下方会标明"未使用你的资料"。有资料依据的回答也会标注引用情况。
+              这段回答下方会标明"未使用你的资料"。知识库为空时同样可以提问，声明会写成"知识库中还没有资料"。
+              有资料依据的回答也会标注引用情况。
             </HelpTip>
           </p>
         </div>
@@ -212,7 +218,7 @@ export default function Chat() {
                   <MessageSquareText size={19} />
                 </span>
                 <h3>还没有提问</h3>
-                <p>答案会附带来源片段，点开可以核对原文。</p>
+                <p>有资料时答案附来源片段；没有资料也能问，回答会标明未使用资料。</p>
               </div>
             )}
 
@@ -263,9 +269,11 @@ export default function Chat() {
                     {m.content ? (
                       <MarkdownView markdown={m.content} sources={toNoteSources(m.sources)} />
                     ) : (
-                      !m.noContext && !m.error && (
+                      !m.error &&
+                      !(m.noContext && !m.noContext.fallback) && (
                         <p className="chat-waiting">
-                          <Loader2 size={13} className="spin" /> 正在检索资料…
+                          <Loader2 size={13} className="spin" />
+                          {m.noContext ? '正在用通用知识回答…' : '正在检索资料…'}
                         </p>
                       )
                     )}
@@ -374,8 +382,8 @@ export default function Chat() {
               <h2>
                 <ArrowUpRight size={16} /> 提问范围
                 <HelpTip label="了解检索规则">
-                  每次提问检索最相关的 5 个片段（相似度 ≥ 0.3），并带上最近 5 轮对话。
-                  资料里没有的内容，助手会直接说「资料中未提及」，不会编造。
+                  每次提问检索最相关的 5 个片段（相似度 ≥ 0.42），并带上最近 5 轮对话。
+                  没检索到时不会拿无关片段硬答：先声明，再用通用知识回答，并标明未使用资料。
                   「存为笔记」会把引用还原成笔记角标，进编辑器还能点开原文。
                 </HelpTip>
               </h2>

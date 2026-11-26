@@ -21,6 +21,15 @@ sqlite-vec 返回 cosine distance，相似度 = 1 - distance。
 0.42~0.55 之间属于"擦边命中"：片段确实是中文相关文本，但未必回答了问题。
 这种区间不直接拒答，而是在提示词里加一段让人自己判断，
 模型判断片段没用时会明确说没找到，比硬设阈值更不容易误伤。
+
+三种"没找到"，三种处理
+------------------------
+- 库里一条片段都没有（empty）：仍然作答，声明"知识库中还没有资料，下面用通用知识回答"；
+- 有资料但本次召回为空（no_match）：声明"当前范围内没有相关片段"，再作答；
+- 召回命中但相似度低（擦边）：不声明未命中，改为在提示词里要求模型先判断能否回答。
+
+三种都走 `build_ungrounded_messages` 或带 `UNSURE_NOTE` 的提示词，
+共同点是**不允许模型伪造引用编号**——没有资料就没有 `[n]`，界面的 AI 标注据此分档。
 """
 
 from __future__ import annotations
@@ -169,20 +178,38 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
     """问答 SSE 主循环。自己开 Session，响应期间保持可用。"""
     db = SessionLocal()
     try:
-        # 空库判断放在 Key 之前：先导入资料是第一步，提示要指向真正卡住的地方
+        # 空库也要能问：先声明"知识库没有资料"，再用通用知识作答。
+        # 所以 Key 的检查必须放在空库分支之前——没有 Key 时连兜底答案都给不了。
+        if not settings.llm_configured:
+            yield _event("error", {"detail": "尚未配置大模型 API Key，请先在设置页填写"})
+            return
+
+        history = _trim_history(payload.get("history") or [])
+
         chunk_repo = SqlAlchemyChunkRepository(db)
         if chunk_repo.count() == 0:
+            # 三种"没找到"里最干净的一种：库里确实一条片段都没有。
+            # 仍然作答，但声明必须写清楚"一句资料都没用上"，否则用户会以为回答有出处。
             yield _event(
                 "no_context",
                 {
                     "reason": "empty",
-                    "detail": "先在知识库导入文档或网页，等索引完成后再来提问。",
+                    "fallback": ANSWER_WITHOUT_CONTEXT,
+                    "scoped": False,
+                    "detail": (
+                        "当前知识库中还没有资料，下面直接用 AI 的通用知识回答，内容未经你的资料核对。"
+                        if ANSWER_WITHOUT_CONTEXT
+                        else "先在知识库导入文档或网页，等索引完成后再来提问。"
+                    ),
                 },
             )
-            return
-
-        if not settings.llm_configured:
-            yield _event("error", {"detail": "尚未配置大模型 API Key，请先在设置页填写"})
+            if not ANSWER_WITHOUT_CONTEXT:
+                return
+            async for chunk in _stream_answer(
+                chat_prompts.build_ungrounded_messages(payload["question"], history),
+                temperature=0.4,
+            ):
+                yield chunk
             return
 
         citations, blocks, best = retrieve(
@@ -192,7 +219,6 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
             tag_ids=payload.get("tag_ids") or [],
             document_ids=payload.get("document_ids") or [],
         )
-        history = _trim_history(payload.get("history") or [])
 
         if not citations:
             # 明确区分两种"没找到"：库是空的，还是库里有东西但都不相关。
