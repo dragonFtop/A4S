@@ -10,7 +10,7 @@
 > 本项目按 **SDD（规约驱动开发）** 推进：先写规约再写代码，实现与规约冲突时先改规约。
 >
 > - 产品规约：[docs/PRD.md](./docs/PRD.md)｜客户端/服务端边界：[docs/CLIENT_SERVER_SPLIT.md](./docs/CLIENT_SERVER_SPLIT.md)｜Agent 取舍：[docs/AGENT_DECISION.md](./docs/AGENT_DECISION.md)｜Agent 机会评估：[docs/AGENT_OPPORTUNITIES.md](./docs/AGENT_OPPORTUNITIES.md)
-> - 当前版本 **v0.2.1**：13 条 P0（FR-01~FR-13）与 FR-14 学习计划、FR-15 多智能体教练、FR-16 知识库体检均已落地，拆分后回归 **492 项断言全部通过**（明细见 CLIENT_SERVER_SPLIT §7）。
+> - 当前版本 **v0.2.1**：13 条 P0（FR-01~FR-13）与 FR-14 学习计划、FR-15 多智能体教练、FR-16 知识库体检均已落地，拆分后回归 **500 项断言全部通过**（明细见 CLIENT_SERVER_SPLIT §7）。
 
 ![学习概览](./docs/screenshots/01-overview.png)
 
@@ -245,7 +245,7 @@ frontend/
 
 ## 测试
 
-每个里程碑都有独立冒烟脚本，跑在各自的临时库上，不碰开发库。拆分后回归合计 **492 项断言**：
+每个里程碑都有独立冒烟脚本，跑在各自的临时库上，不碰开发库。拆分后回归合计 **500 项断言**：
 
 ```bash
 cd backend
@@ -256,7 +256,7 @@ cd backend
 .venv/Scripts/python.exe scripts/smoke_m4b.py     # 作答判分与错题本（84）
 .venv/Scripts/python.exe scripts/smoke_m5.py      # 回顾报告与定时推送（50）
 .venv/Scripts/python.exe scripts/smoke_m6.py      # 设置与索引（43）
-.venv/Scripts/python.exe scripts/smoke_m7.py      # 学习计划多智能体（61，--real 走真实模型）
+.venv/Scripts/python.exe scripts/smoke_m7.py      # 学习计划多智能体（69，--real 走真实模型）
 .venv/Scripts/python.exe scripts/smoke_m8_health.py  # 知识库体检道（31）
 .venv/Scripts/python.exe scripts/smoke_rag.py     # 混合检索与空间隔离（18）
 .venv/Scripts/python.exe scripts/smoke_auth.py    # 账号 / 空间隔离 / 小组权限（31）
@@ -268,6 +268,7 @@ cd backend
 
 `smoke_m7.py` 校验学习教练的四角色边界：空库不出计划、角色交接与步数上限、审核拦截短计划与无出处数字、
 `agent_runs` / `agent_steps` 可回放、工具报错继续换路、页面关闭后无后台残留。
+体检报出资料问题后，下一次计划会多一步「读取知识库体检」，把高危 / 中危问题并进依据；体检没跑过则不受影响。
 `smoke_m8_health.py` 校验体检道：空库给 0 分、五类问题都能报出、建议可对回问题、体检不改资料、空间隔离。
 
 ## 数据库迁移
@@ -327,6 +328,6 @@ cd backend
 ## 版本状态
 
 **v0.2.0**：客户端/服务端拆分（P0→P4）完成，账号 / 空间 / 小组投稿审核 / 共享 / 公共目录 / 联邦检索 / 备份全部落地；
-FR-14 学习计划补齐「接下来做什么」，拆分后回归 492 项断言全过。
+FR-14 学习计划补齐「接下来做什么」，拆分后回归 500 项断言全过。
 
 后续迭代方向：OCR、间隔重复排期（SM-2 / FSRS）、补发机制、笔记回灌、错题转笔记、题型自定义、日历排期、L1 插件协议。

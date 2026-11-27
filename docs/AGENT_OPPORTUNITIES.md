@@ -438,10 +438,10 @@
 
 - P1（已完成）：只拆教练道（Coordinator + Observer + Planner + Verifier + Writer），验证多角色是否真的比单 Agent 更稳。
 - P2：加体检道（Inspector + Fixer），后台产出 Finding。
-- P3：教练道读取体检 Finding，形成「体检 → 计划」的跨道协作；周定时主动跑一次。
+- P3（跨道部分已完成，2026-11-27）：教练道在规划前读取最近一次体检的高危 / 中危 Finding，形成「体检 → 计划」的协作；周定时主动跑一次仍未做。
 - P4：把错题诊断作为第三个 specialist 插入，不改变主结构。
 
-> **落地进度（2026-11-27）**：P1 已落地。角色代码在 `backend/client/services/agents/`，运行与步骤写入 `agent_runs` / `agent_steps`，`GET /api/plan/runs/{run_id}` 可回放；审核为确定性规则（长度 + 三段结构 + 依据数字核对），打回最多重试 1 次，只有 Writer 能调 `save_plan`。对外仍是 6 步，前端时间线新增角色徽标。冒烟脚本 61 项断言全部通过。P2 体检道同日落地：`Inspector` 逐份巡检、`Fixer` 只出建议、`Verifier` 丢弃无依据提案，`POST /api/kb-health/run` 手动触发，不调模型也不写业务表；探针召回留到 P2.1，冒烟 31 项断言通过。
+> **落地进度（2026-11-27）**：P1 已落地。角色代码在 `backend/client/services/agents/`，运行与步骤写入 `agent_runs` / `agent_steps`，`GET /api/plan/runs/{run_id}` 可回放；审核为确定性规则（长度 + 三段结构 + 依据数字核对），打回最多重试 1 次，只有 Writer 能调 `save_plan`。对外仍是 6 步，前端时间线新增角色徽标。冒烟脚本（现 69 项）全部通过。P2 体检道同日落地：`Inspector` 逐份巡检、`Fixer` 只出建议、`Verifier` 丢弃无依据提案，`POST /api/kb-health/run` 手动触发，不调模型也不写业务表；探针召回留到 P2.1，冒烟 31 项断言通过。P3 跨道协作同日落地：规划前由协调员读最近一次体检（`read_kb_health` 一步），高危 / 中危资料问题并入黑板，读取失败降级为空；教练道冒烟增至 69 项。
 
 > 判断多智能体是否成功的标准不是「角色多」，而是：**Verifier 拦截了多少错误、跨道协作减少了多少重复劳动、用户是否更容易理解为什么改。**
 
@@ -487,7 +487,7 @@
 | P0 前置 | 契约（Finding / Proposal / Verdict）、`agent_runs/steps`、评估集、预算与撤销机制 | 无 | 契约测试通过；每次运行可回放 |
 | P1 v0.3 | 教练多智能体 MVP：Coordinator + Observer + Planner + Verifier + Writer；计划条目 + 勾选 + 周复盘 + 重排 | P0 | 10 组场景；12 步内完成；数字 100% 可溯源；Verifier 拦截率 100% |
 | P2 v0.4 | 体检道：Inspector + Fixer（后台）+ `agent_findings` + 体检报告 + 一键修复 | P0 | 20 份样本识别率达标；扫描件检出 100%；修复幂等可回滚 |
-| P3 v0.5 | 跨道协作：教练读取体检 Finding；周定时主动复盘 | P1/P2 | 10 个跨道场景；体检失败不阻塞教练；周闭环完成率提升 |
+| P3 v0.5 | 跨道协作：教练读取体检 Finding（已完成）；周定时主动复盘（未做） | P1/P2 | 10 个跨道场景；体检失败不阻塞教练；周闭环完成率提升 |
 | P4 可选 | 诊断 specialist + 跨主题目标 + 知识地图 | P1/P3 | 30 条标注准确率 ≥80%；不改变主结构 |
 
 > 顺序理由：教练复用现有 L3 能力，最快形成感知；体检为教练提供「资料是否可信」的事实底座；先单道验证多角色是否真的更稳，再做跨道协作。诊断作为可插拔 specialist 放到最后，不阻塞前两条链路。

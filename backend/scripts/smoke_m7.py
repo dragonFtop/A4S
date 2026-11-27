@@ -16,6 +16,7 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
@@ -244,6 +245,28 @@ def seed(space_id: str) -> None:
         db.close()
 
 
+def seed_failed_doc(space_id: str) -> None:
+    """加一份解析失败的资料，让体检道能报出高危问题；不影响就绪资料数。"""
+    db = SessionLocal()
+    try:
+        db.add(
+            DocumentORM(
+                id="d-scan",
+                name="扫描版讲义.pdf",
+                ext="pdf",
+                size=2048,
+                status="failed",
+                error="扫描件没有文本层",
+                chunk_count=0,
+                topic_id="t-plan",
+                space_id=space_id,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
 def main() -> int:
     want_real = "--real" in sys.argv
     settings.llm_api_key = settings.llm_api_key or "test-key"
@@ -455,8 +478,57 @@ def main() -> int:
         check("超长返回被截断", len(json.dumps(fitted, ensure_ascii=False)) <= plan_tools.MAX_RESULT_CHARS)
         check("截断后结构还在", "items" in fitted)
 
+        print("\n== 14. 跨道协作：体检结论进入计划依据 ==")
+        seed_failed_doc(space_id)
+        report = client.post("/api/kb-health/run").json()
+        checks = {item.get("check") for item in report.get("findings") or []}
+        check("体检报出解析失败", "parse_failed" in checks, str(checks))
+
+        events, fake = run_plan(
+            client,
+            [
+                json.dumps({"action": "get_progress", "args": {}}),
+                json.dumps({"action": "finish_observation", "args": {}}),
+                json.dumps({"action": "save_plan", "args": {"markdown": PLAN_MD}}, ensure_ascii=False),
+            ],
+        )
+        names = [name for name, _ in events]
+        cross = [
+            data
+            for name, data in events
+            if name == "step" and data.get("tool") == "read_kb_health"
+        ]
+        check("教练道读了体检", len(cross) == 1, str(len(cross)))
+        check("跨道步骤标为协调员", cross and cross[0].get("role") == "coordinator", str(cross[:1]))
+        check("跨道步骤写明条数", cross and "资料问题" in (cross[0].get("brief") or ""), str(cross[:1]))
+        digest = "\n".join(
+            message.get("content") or "" for call in fake.calls for message in call
+        )
+        check("资料问题进了规划员上下文", "解析失败" in digest, digest[-200:])
+        check("照样出计划", "plan" in names, str(names))
+
+        run_id = next((data.get("run_id") for name, data in events if name == "plan"), None)
+        run = client.get(f"/api/plan/runs/{run_id}").json()
+        roles = {step.get("role") for step in run.get("steps") or []}
+        check("回放里能看到协调员", "coordinator" in roles, str(roles))
+
+        from client.services.agents import crosslane
+
+        low = crosslane.from_health_run(
+            SimpleNamespace(
+                id="r-x",
+                summary={
+                    "findings": [
+                        {"claim": "低危", "evidence": {"check": "uncategorized", "severity": "low"}},
+                        {"claim": "空库", "evidence": {"check": "empty_library", "severity": "low"}},
+                    ]
+                },
+            )
+        )
+        check("低危与空库不进计划", low == [], str([finding.claim for finding in low]))
+
         if want_real:
-            print("\n== 14. 真实模型 ==")
+            print("\n== 15. 真实模型 ==")
             if not settings.llm_configured:
                 print("  [skip] 未配置 LLM_API_KEY")
             else:

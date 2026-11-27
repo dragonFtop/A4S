@@ -36,7 +36,7 @@ from shared.repositories.sqlalchemy_repo import SqlAlchemyStudyPlanRepository
 from shared.repositories.stats_repo import StatsRepository
 from client.services.plan_tools import ToolError
 
-from . import budget, protocol
+from . import budget, crosslane, protocol
 from .observer import Observer
 from .planner import Planner
 from .verifier import verify
@@ -68,6 +68,13 @@ class _Recorder:
         self.repo.append_step(self.run_id, seq=self.seq, **payload)
         if payload.get("action") == "handoff":
             self.handoffs += 1
+
+    def record(self, event: protocol.AgentEvent) -> None:
+        """协调员自己发起的步骤：落库、收进 meta.steps，并推给前端。"""
+        if event.persist is not None:
+            self.persist(event.persist)
+        if event.name == "step":
+            self.note_step(event)
 
     def note_step(self, event: protocol.AgentEvent) -> None:
         """把一条 step 事件同时收进 meta.steps，历史详情与实时视图才一致。"""
@@ -171,6 +178,41 @@ async def run_coach(
         )
         async for chunk in rec.pipe(observer.run()):
             yield chunk
+
+        # P3 跨道协作：规划员动笔前，把最近一次体检的资料问题并进黑板。
+        # 读不到就当作没有——体检道失败不能拖垮教练道。
+        health_findings, health_meta = crosslane.load(db, space_id)
+        if health_findings:
+            # 放在最前面：证据清单有字数上限，资料问题不能被截掉。
+            observer.findings[:0] = health_findings
+            brief = f"最近一次体检查出 {len(health_findings)} 条资料问题，已并入计划依据"
+            step = protocol.AgentEvent(
+                "step",
+                {
+                    "index": len(rec.steps) + 1,
+                    "role": AgentRole.COORDINATOR.value,
+                    "role_label": ROLE_LABELS[AgentRole.COORDINATOR.value],
+                    "tool": "read_kb_health",
+                    "label": "读取知识库体检",
+                    "args": {},
+                    "ok": True,
+                    "brief": brief,
+                    "preview": protocol.preview(health_meta),
+                    "elapsed_ms": 0,
+                },
+                persist={
+                    "role": AgentRole.COORDINATOR.value,
+                    "action": "tool",
+                    "tool": "read_kb_health",
+                    "args": {},
+                    "ok": True,
+                    "brief": brief,
+                    "result": health_meta,
+                    "elapsed_ms": 0,
+                },
+            )
+            rec.record(step)
+            yield protocol.event("step", step.data)
 
         planner = Planner(
             db=db,

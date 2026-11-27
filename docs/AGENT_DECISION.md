@@ -199,7 +199,8 @@ for step in range(MAX_STEPS):                 # 硬上限，防止无限循环
 > 角色实现见 `client/services/agents/`（`coordinator` / `observer` / `planner` / `verifier` / `writer`），
 > 契约在 `shared/domain/models/agents.py`，运行账本为 `agent_runs` / `agent_steps`。
 > 预算：工具步 ≤6、模型调用 ≤12、交接 ≤3、审核重试 ≤1；审核是确定性规则，不调模型。
-> `GET /api/plan/runs/{run_id}` 可回放一次运行；`smoke_m7.py` 的 61 项断言覆盖空库、角色交接、审核拦截、回放与失败出口。
+> `GET /api/plan/runs/{run_id}` 可回放一次运行；`smoke_m7.py` 的 69 项断言覆盖空库、角色交接、审核拦截、回放与失败出口。
+> P3 跨道协作：规划前由协调员读最近一次体检，把高危 / 中危资料问题并入黑板（`read_kb_health` 一步）；读取失败降级为空。
 >
 > 历史：2026-11-26 首次落地为 6 步单循环（43 项断言），已被本轮拆分取代。
 

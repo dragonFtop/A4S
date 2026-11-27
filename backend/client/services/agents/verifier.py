@@ -76,6 +76,9 @@ def _evidence_sets(findings: list[Finding]) -> dict[str, set[float]]:
     progress = [item for item in findings if item.kind == FindingKind.PROGRESS]
     weak = [item for item in findings if item.kind == FindingKind.WEAK_POINT]
     practice = [item for item in findings if item.kind == FindingKind.PRACTICE]
+    # 跨道协作（P3）：体检道交来的资料问题也算「资料」类证据，
+    # 否则计划里写「50 字」「没有片段」会被误判成编数字。
+    documents_facts = [item for item in findings if item.kind == FindingKind.DOCUMENT]
 
     documents = set()
     practices = set()
@@ -84,6 +87,9 @@ def _evidence_sets(findings: list[Finding]) -> dict[str, set[float]]:
         documents |= _numbers(item.evidence.get("documents"))
         practices |= _numbers(item.evidence.get("practice"))
         wrong |= _numbers(item.evidence.get("wrong"))
+
+    for item in documents_facts:
+        documents |= _numbers(item.evidence)
 
     weak_numbers = set()
     for item in weak:
