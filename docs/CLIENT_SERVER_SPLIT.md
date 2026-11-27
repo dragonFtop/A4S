@@ -1,6 +1,6 @@
 # 客户端 / 服务端拆分
 
-> 状态：**P0 ~ P4 全部已完成**（物理拆分、数据分家、投稿审核、公共目录、联邦执行、打包与运维；回归 461 项断言全过）
+> 状态：**P0 ~ P4 全部已完成**（物理拆分、数据分家、投稿审核、公共目录、联邦执行、打包与运维；回归 492 项断言全过）
 > 最后更新：2026-11-26（文档与配图同步当前界面；本文件只描述边界，界面规范见 PRD ADR-10 / ADR-16）
 
 ---
@@ -156,14 +156,14 @@ grep -rn "from client\|import client" --include="*.py" shared
 - [x] `client/main.py` / `server/main.py` 两个独立入口
 - [x] 消除反向依赖：`shared` 不再 import `client`（调度器改为入口注入）
 - [x] `app/main.py` 保留为兼容入口（脚本仍 `from app.main import app`）
-- [x] 回归：461 项断言全过
+- [x] 回归：492 项断言全过
 
 ### P1 数据分家（已完成）
 
 - [x] `client.db` / `server.db` 两个库文件，配置分离（入口通过 `APP_ROLE` 选默认库；`DATABASE_URL` 显式优先）
 - [x] 迁移脚本 `scripts/migrate_split_db.py`：把旧 `app.db` 内容搬到 `client.db`，原库归档为 `.bak`（可回滚）
 - [x] Alembic 单条链两端共用：两端启动各跑 `alembic upgrade head` 到自己的库（schema 未分化，无需拆链）
-- [x] 验证：client 保留 3 用户 / 6 空间 / 25 主题；server 空库 health 200；两端并发无锁冲突；461 项断言全过
+- [x] 验证：client 保留 3 用户 / 6 空间 / 25 主题；server 空库 health 200；两端并发无锁冲突；492 项断言全过
 
 ### P1.5 小组投稿与审核（已完成）
 
@@ -231,11 +231,12 @@ grep -rn "from client\|import client" --include="*.py" shared
 | `smoke_m4b` | 84 | 练习（边界） |
 | `smoke_m5` | 50 | 回顾与推送 |
 | `smoke_m6` | 43 | 设置与索引 |
-| `smoke_m7` | 43 | 学习计划 Agent |
+| `smoke_m7` | 61 | 学习计划多智能体 |
+| `smoke_m8_health` | 31 | 知识库体检道 |
 | `smoke_rag` | 18 | 混合检索与隔离 |
 | `smoke_auth` | 31 | 账号与空间隔离 |
 | `smoke_share` | 32 | 共享授权与只读保护 |
-| **合计** | **461** | |
+| **合计** | **492** | |
 
 ### 7.2 两端独立可用性
 

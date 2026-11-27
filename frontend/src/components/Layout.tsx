@@ -3,7 +3,6 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import {
   BookOpen,
   CalendarClock,
-  CalendarRange,
   FileText,
   Handshake,
   LayoutDashboard,
@@ -12,6 +11,7 @@ import {
   Moon,
   NotebookPen,
   Settings2,
+  Sparkles,
   LogOut,
   Sun,
   Users,
@@ -22,6 +22,10 @@ import { useSpace } from '../context/SpaceContext'
 
 const NAV_GROUPS = [
   {
+    title: 'Agent',
+    items: [{ to: '/plan', label: '学习计划', icon: Sparkles, count: null }],
+  },
+  {
     title: '学习',
     items: [
       { to: '/overview', label: '概览', icon: LayoutDashboard, count: null },
@@ -30,7 +34,6 @@ const NAV_GROUPS = [
       { to: '/chat', label: '问答', icon: MessageSquareText, count: null },
       { to: '/practice', label: '练习', icon: ListChecks, count: null },
       { to: '/wrong', label: '错题本', icon: NotebookPen, count: 'wrong' },
-      { to: '/plan', label: '计划', icon: CalendarRange, count: null },
     ],
   },
   {
@@ -53,7 +56,7 @@ const TITLES: Record<string, string> = {
   '/chat': '问答',
   '/practice': '练习',
   '/wrong': '错题本',
-  '/plan': '计划',
+  '/plan': '学习 Agent',
   '/review': '回顾',
   '/spaces': '空间与成员',
   '/shares': '共享管理',

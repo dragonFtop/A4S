@@ -7,11 +7,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from client.api import chat, federation, plan, practice, review, schedule, server_link, settings
+from client.api import (
+    chat,
+    federation,
+    kb_health,
+    plan,
+    practice,
+    review,
+    schedule,
+    server_link,
+    settings,
+)
 
 api_router = APIRouter()
 api_router.include_router(chat.router)
 api_router.include_router(federation.router)
+api_router.include_router(kb_health.router)
 api_router.include_router(plan.router)
 api_router.include_router(practice.router)
 api_router.include_router(review.router)

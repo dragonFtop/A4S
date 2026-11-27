@@ -1237,6 +1237,139 @@
   gap: 7px;
 }
 
+/* ---------- 知识库体检：一条只读的检查带 ---------- */
+
+.kb-health {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.kb-health-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.kb-health-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.kb-health-title strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.kb-health-score {
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: var(--surface-3);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.kb-health-score.is-warn {
+  background: var(--amber-soft);
+  color: var(--amber-ink);
+}
+
+.kb-health-score.is-bad {
+  background: var(--rose-soft);
+  color: var(--rose-ink);
+}
+
+.kb-health-note,
+.kb-health-time {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.kb-health-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.kb-health-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kb-health-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.kb-health-tag {
+  flex: none;
+  padding: 0 7px;
+  border-radius: var(--radius-full);
+  background: var(--surface-3);
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.kb-health-item.sev-high .kb-health-tag {
+  background: var(--rose-soft);
+  color: var(--rose-ink);
+}
+
+.kb-health-item.sev-medium .kb-health-tag {
+  background: var(--amber-soft);
+  color: var(--amber-ink);
+}
+
+.kb-health-claim {
+  min-width: 0;
+}
+
+.kb-health-fix {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.kb-health-fix::before {
+  content: '建议：';
+}
+
+.kb-health-more {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .kb-health-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .kb-health-fix {
+    display: none;
+  }
+}
+
 .tag-pill {
   padding: 1px 6px;
   border-radius: var(--radius-full);
@@ -4132,6 +4265,54 @@
   height: 38px;
 }
 
+/* Agent 的工作方式：把「看数据 → 出题 → 写计划」摆到用户面前 */
+.agent-loop {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--amber-soft);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.agent-loop-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--amber-line);
+  border-radius: 999px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+
+.agent-loop-step b {
+  color: var(--amber-ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-loop-arrow {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.agent-loop-note {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .agent-loop-note {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
 /* 生成过程：一条时间线，每步都能展开看数据 */
 .plan-steps {
   list-style: none;
@@ -4186,6 +4367,17 @@
   gap: 8px;
 }
 
+.plan-step-role {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--ink-3);
+}
+
 .plan-step-label {
   font-size: 13.5px;
   font-weight: 600;
@@ -4193,6 +4385,7 @@
 }
 
 .plan-step-time {
+  margin-left: auto;
   font-family: var(--f-mono);
   font-size: 11.5px;
   color: var(--ink-3);

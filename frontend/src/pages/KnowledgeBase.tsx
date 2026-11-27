@@ -29,6 +29,7 @@ import {
   type Topic,
   type TopicPack,
 } from '../api/client'
+import HealthPanel from '../components/kb/HealthPanel'
 import PackPicker from '../components/kb/PackPicker'
 import UploadPanel from '../components/kb/UploadPanel'
 import Button from '../components/ui/Button'
@@ -297,6 +298,8 @@ export default function KnowledgeBase() {
           <span>无法加载数据：{error}</span>
         </div>
       )}
+
+      <HealthPanel />
 
       <div className="kb-shell">
         <aside className="kb-side" aria-label="主题导航">

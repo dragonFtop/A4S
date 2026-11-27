@@ -5,6 +5,7 @@
   因为一次规划要调 3~5 次模型，够等 1~2 分钟，不适合普通请求。
 - `GET /api/plan`：历史计划（不含正文，带摘要）。
 - `GET /api/plan/{id}`：详情（正文 + 每步过程）。
+- `GET /api/plan/runs/{run_id}`：一次多智能体运行的回放（谁做了什么）。
 - `DELETE /api/plan/{id}`：删除一次规划。
 - `GET /api/plan/meta`：页面提示用的工具清单与边界说明。
 """
@@ -21,8 +22,16 @@ from shared.domain.models.entities import StudyPlan
 from shared.api.deps import get_current_space
 from shared.domain.models.entities import Space
 from shared.infrastructure.db.session import get_db
+from shared.repositories.agents import SqlAlchemyAgentRunRepository
 from shared.repositories.sqlalchemy_repo import SqlAlchemyStudyPlanRepository
-from shared.schemas.plan import PlanBrief, PlanDetail, PlanIn, PlanMetaOut
+from shared.schemas.plan import (
+    AgentRunOut,
+    AgentStepOut,
+    PlanBrief,
+    PlanDetail,
+    PlanIn,
+    PlanMetaOut,
+)
 import client.services.plan_agent as plan_agent
 import client.services.plan_tools as plan_tools
 
@@ -103,6 +112,49 @@ def list_plans(
         _brief(plan)
         for plan in SqlAlchemyStudyPlanRepository(db).list(space.id, limit=limit)
     ]
+
+
+@router.get("/runs/{run_id}", response_model=AgentRunOut)
+def get_run(
+    run_id: str,
+    space: Space = Depends(get_current_space),
+    db: Session = Depends(get_db),
+) -> AgentRunOut:
+    """一次运行的全过程：角色、动作、预算用量与审核结论。"""
+    run = SqlAlchemyAgentRunRepository(db).get(run_id, space.id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="运行记录不存在或已删除")
+    return AgentRunOut(
+        id=run.id,
+        kind=run.kind,
+        goal=run.goal,
+        status=run.status,
+        model=run.model,
+        budget_steps=run.budget_steps,
+        steps_count=run.steps_count,
+        llm_calls=run.llm_calls,
+        handoffs=run.handoffs,
+        summary=run.summary,
+        verdict=run.verdict,
+        error=run.error,
+        elapsed_ms=run.elapsed_ms,
+        created_at=run.created_at.isoformat() if run.created_at else "",
+        finished_at=run.finished_at.isoformat() if run.finished_at else None,
+        steps=[
+            AgentStepOut(
+                seq=step.seq,
+                role=step.role,
+                action=step.action,
+                tool=step.tool,
+                args=step.args,
+                ok=step.ok,
+                brief=step.brief,
+                result=step.result,
+                elapsed_ms=step.elapsed_ms,
+            )
+            for step in run.steps
+        ],
+    )
 
 
 @router.get("/{plan_id}", response_model=PlanDetail)

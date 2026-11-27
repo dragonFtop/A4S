@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  ArrowRight,
   ArrowUpRight,
   CalendarRange,
   Check,
@@ -150,6 +151,8 @@ export default function Plan() {
   const timeline: PlanStep[] = detail
     ? (detail.meta.steps ?? []).map((step, index) => ({
         index: index + 1,
+        role: step.role,
+        role_label: step.role_label,
         tool: step.tool,
         label: step.label,
         args: step.args ?? {},
@@ -167,7 +170,8 @@ export default function Plan() {
     <section className="page">
       <header className="page-head">
         <div>
-          <h1>计划</h1>
+          <h1>学习 Agent</h1>
+          <p className="page-sub">观察员查数据、规划员写计划、审核员核对数字，记录员才写入：最多 6 步，每个数字都能点回出处。</p>
         </div>
         <div className="page-actions">
           {running ? (
@@ -176,7 +180,7 @@ export default function Plan() {
             </Button>
           ) : (
             <Button variant="primary" icon={<Sparkles size={15} />} onClick={start}>
-              生成计划
+              让 Agent 开始
             </Button>
           )}
         </div>
@@ -199,6 +203,21 @@ export default function Plan() {
             />
           </div>
 
+          <div className="agent-loop" aria-label="Agent 的工作方式">
+            <span className="agent-loop-step">
+              <b>1</b> 看进度与薄弱点
+            </span>
+            <ArrowRight size={12} className="agent-loop-arrow" />
+            <span className="agent-loop-step">
+              <b>2</b> 按需出一套题
+            </span>
+            <ArrowRight size={12} className="agent-loop-arrow" />
+            <span className="agent-loop-step">
+              <b>3</b> 写出 7 天计划
+            </span>
+            <span className="agent-loop-note">只读数据 · 唯一写操作是保存这份计划</span>
+          </div>
+
           {timeline.length > 0 && (
             <ol className="plan-steps" aria-label="生成过程">
               {timeline.map((step) => (
@@ -208,6 +227,7 @@ export default function Plan() {
                   </span>
                   <div className="plan-step-main">
                     <div className="plan-step-head">
+                      {step.role_label && <span className="plan-step-role">{step.role_label}</span>}
                       <span className="plan-step-label">{step.label}</span>
                       <span className="plan-step-time">{step.elapsed_ms} ms</span>
                     </div>
@@ -284,10 +304,10 @@ export default function Plan() {
             !notice && (
               <div className="thread-empty plan-empty">
                 <span className="orb">
-                  <CalendarRange size={19} />
+                  <Sparkles size={19} />
                 </span>
-                <h3>还没有生成计划</h3>
-                <p>点「生成计划」，它会先看数据再安排；大约需要 30～90 秒。</p>
+                <h3>Agent 还没开始</h3>
+                <p>说一句目标，它会先看资料与错题；走到哪一步都会在上面亮出来，大约 30～90 秒。</p>
               </div>
             )
           )}
@@ -337,7 +357,7 @@ export default function Plan() {
           <div className="card">
             <div className="card-head">
               <h2>
-                <ShieldCheck size={15} /> 它的边界
+                <ShieldCheck size={15} /> Agent 边界
               </h2>
             </div>
             <ul className="plan-scope">

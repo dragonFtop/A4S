@@ -380,3 +380,62 @@ class FedAuditORM(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
 
+
+class AgentRunORM(Base):
+    """一次多智能体运行的账本（M8）。
+
+    只记「谁在什么预算内做了什么、结论是什么」，不存模型对话原文。
+    回放靠 agent_steps：每一行是一条类型化事实或动作。
+    """
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    space_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # coach / kb_inspection
+    kind: Mapped[str] = mapped_column(String(24), nullable=False, default="coach")
+    goal: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    # user / schedule
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
+    model: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    # running / completed / failed / aborted
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    budget_steps: Mapped[int] = mapped_column(Integer, nullable=False, default=6)
+    steps_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    handoffs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    verdict: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    elapsed_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AgentStepORM(Base):
+    """运行内的一行步骤：工具调用、Finding、审核结论或写入。"""
+
+    __tablename__ = "agent_steps"
+    __table_args__ = (
+        Index("ix_agent_steps_run_seq", "run_id", "seq", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    # observer / planner / verifier / writer / inspector / fixer
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    # tool / finding / handoff / propose / verdict / commit / error
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    tool: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    args: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    brief: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    elapsed_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_now)
+

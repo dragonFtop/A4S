@@ -1,4 +1,4 @@
-"""M7 冒烟测试：规划 Agent（学习计划）。
+"""M7/M8 冒烟测试：多智能体学习教练（学习计划）。
 
 用法（在 backend/ 下）：
     .venv/Scripts/python.exe scripts/smoke_m7.py           # 假模型跑通全链路
@@ -6,7 +6,7 @@
 
 使用独立数据库 data/test_m7.db，不污染开发库。
 除了「出题成功」一项会真正走进 practice_service（假模型返回合法题目），
-其余都在假模型上跑——要测的是循环、解析、边界与落库，不是模型水平。
+其余都在假模型上跑——要测的是角色交接、审核拦截、预算与落库，不是模型水平。
 """
 
 from __future__ import annotations
@@ -57,9 +57,6 @@ MATERIAL = (
     "选择模式时要在并行性、随机访问、错误传播与完整性保护之间权衡。"
     "CBC 的错误会传播到下一块，但不会影响更后面的块；CTR 与 OFB 这类流模式只错对应的一位，"
     "代价是必须自己加消息认证码，否则攻击者翻转密文的一位就能可预测地翻转明文的一位。"
-    "GCM 把计数器模式与认证放在一起，同时给出机密性与完整性，因此成为 TLS 里的常见选择，"
-    "但它对随机数与计数器重用的容忍度为零，一旦同一密钥下重复使用同一个 nonce，"
-    "认证密钥就能被恢复，整批消息都不再安全。"
 )
 
 PLAN_MD = """# 7 天学习计划（11 月 26 日 — 12 月 2 日）
@@ -270,7 +267,7 @@ def main() -> int:
         check("缺 Key 报 error", [n for n, _ in events] == ["error"], str(events))
         settings.llm_api_key = saved_key
 
-        print("\n== 3. 正常两查一写 ==")
+        print("\n== 3. 观察两查，规划一次提交 ==")
         events, fake = run_plan(
             client,
             [
@@ -282,20 +279,27 @@ def main() -> int:
         )
         names = [name for name, _ in events]
         check("事件以 start 开头", names[0] == "start", str(names))
+        start_event = events[0][1]
+        check("start 带运行号与角色", bool(start_event.get("run_id")) and len(start_event.get("roles") or []) == 4, str(start_event))
         check("两步各推一次 step", names.count("step") == 2, str(names))
         check("事件以 done 收尾", names[-1] == "done", str(names))
+        step_events = [data for name, data in events if name == "step"]
+        check("步骤标注观察员", [step.get("role") for step in step_events] == ["observer", "observer"], str([s.get("role") for s in step_events]))
         plan_event = next((data for name, data in events if name == "plan"), {})
         check("拿到计划正文", plan_event.get("markdown", "").startswith("# 7 天学习计划"))
         check("计划长度达标", len(plan_event.get("markdown", "")) > 300)
+        check("plan 事件带运行号", plan_event.get("run_id") == start_event.get("run_id"))
         plan_id = plan_event.get("plan_id")
+        run_id = plan_event.get("run_id")
 
-        print("\n== 4. 计划落库且过程可溯源 ==")
+        print("\n== 4. 计划落库、过程可溯源、运行可回放 ==")
         detail = client.get(f"/api/plan/{plan_id}").json()
         check("详情可取", detail.get("id") == plan_id)
         check("goal 落库", detail.get("goal") == "这周想把分组密码搞明白", detail.get("goal", ""))
         meta = detail.get("meta") or {}
         steps = meta.get("steps") or []
         check("meta 记录两步", [step["tool"] for step in steps] == ["get_progress", "list_weak_points"])
+        check("每步都带角色", [step.get("role") for step in steps] == ["observer", "observer"], str(steps))
         check("每步都有入参与结果", all(step.get("args") is not None and step.get("result") for step in steps))
         check(
             "统计快照与库一致（平均 66.7）",
@@ -303,6 +307,18 @@ def main() -> int:
             str(meta.get("stats")),
         )
         check("耗时已补写", isinstance(meta.get("elapsed_seconds"), (int, float)))
+        agents = meta.get("agents") or {}
+        check("meta 记录四个角色", len(agents.get("roles") or []) == 4, str(agents))
+        check("审核结论已落库", (agents.get("verdict") or {}).get("passed") is True, str(agents.get("verdict")))
+        check("三次模型调用（两查 + 一次直接提交）", agents.get("llm_calls") == 3, str(agents.get("llm_calls")))
+
+        run = client.get(f"/api/plan/runs/{run_id}").json()
+        check("运行状态完成", run.get("status") == "completed", str(run.get("status")))
+        run_steps = run.get("steps") or []
+        check("回放包含四个角色", {step.get("role") for step in run_steps} == {"observer", "planner", "verifier", "writer"}, str({s.get("role") for s in run_steps}))
+        check("回放含审核与写入", [s.get("action") for s in run_steps][-2:] == ["verdict", "tool"], str([s.get("action") for s in run_steps]))
+        check("交接一次", run.get("handoffs") == 1, str(run.get("handoffs")))
+        check("无未知运行 404", client.get("/api/plan/runs/not-exist").status_code == 404)
 
         print("\n== 5. 动作格式错误会被纠正 ==")
         events, fake = run_plan(
@@ -317,10 +333,14 @@ def main() -> int:
         check("纠正后仍能出计划", "plan" in names, str(names))
         check(
             "纠正消息进了上下文",
-            any("不是合法的动作 JSON" in (message.get("content") or "") for message in fake.calls[-1]),
+            any(
+                "不是合法的动作 JSON" in (message.get("content") or "")
+                for call in fake.calls
+                for message in call
+            ),
         )
 
-        print("\n== 6. 工具失败后换路 ==")
+        print("\n== 6. 出题失败后换路 ==")
         events, _ = run_plan(
             client,
             [
@@ -332,7 +352,7 @@ def main() -> int:
         )
         step = next((data for name, data in events if name == "step"), {})
         check("失败的那步 ok=false", step.get("ok") is False, str(step))
-        check("失败原因写成人话", "资料" in (step.get("brief") or ""), step.get("brief", ""))
+        check("失败原因写成人话", (step.get("brief") or "").startswith("失败："), step.get("brief", ""))
         check("换路后照样出计划", "plan" in [name for name, _ in events])
 
         print("\n== 7. 出题工具真的落库 ==")
@@ -369,14 +389,20 @@ def main() -> int:
         check("第三次重复被拦下", len(steps) == 2, str(len(steps)))
         check("仍能收口", "plan" in [name for name, _ in events])
 
-        print("\n== 9. 步数用尽不留半张计划 ==")
-        events, _ = run_plan(client, [json.dumps({"action": "get_progress", "args": {}})] * 6)
+        print("\n== 9. 规划员写不出计划时不留半张 ==")
+        events, _ = run_plan(
+            client,
+            [json.dumps({"action": "finish_observation", "args": {"summary": "数据够了"}})]
+            + ["我还是再想想。"] * 4,
+        )
         names = [name for name, _ in events]
         check("返回 no_plan", names[-1] == "no_plan", str(names))
         check("没有 plan 事件", "plan" not in names)
-        check("带上已查到的步骤", len((next(d for n, d in events if n == "no_plan")).get("steps") or []) == 2)
+        no_plan = next(data for name, data in events if name == "no_plan")
+        check("说明没写出来的原因", any("预算" in reason for reason in no_plan.get("reasons") or []), str(no_plan.get("reasons")))
+        check("no_plan 带运行号", bool(no_plan.get("run_id")))
 
-        print("\n== 10. 计划太短会被打回 ==")
+        print("\n== 10. 计划太短会被审核打回 ==")
         events, fake = run_plan(
             client,
             [
@@ -390,7 +416,24 @@ def main() -> int:
             any("至少写出一周内每天做什么" in (m.get("content") or "") for m in fake.calls[-1]),
         )
 
-        print("\n== 11. 历史与删除 ==")
+        print("\n== 11. 审核两次不过就不写入 ==")
+        events, _ = run_plan(
+            client,
+            [
+                json.dumps({"action": "save_plan", "args": {"markdown": SHORT_PLAN}}, ensure_ascii=False),
+                json.dumps({"action": "save_plan", "args": {"markdown": SHORT_PLAN}}, ensure_ascii=False),
+            ],
+        )
+        names = [name for name, _ in events]
+        check("两次打回后 no_plan", names[-1] == "no_plan", str(names))
+        check("没有写入计划", "plan" not in names)
+        rejected = next(data for name, data in events if name == "no_plan")
+        check("带回打回理由", any("至少写出一周内每天做什么" in reason for reason in rejected.get("reasons") or []), str(rejected.get("reasons")))
+        aborted = client.get(f"/api/plan/runs/{rejected.get('run_id')}").json()
+        check("运行标记为中止", aborted.get("status") == "aborted", str(aborted.get("status")))
+        check("审核步骤为失败", any(step.get("action") == "verdict" and step.get("ok") is False for step in aborted.get("steps") or []))
+
+        print("\n== 12. 历史与删除 ==")
         items = client.get("/api/plan").json()
         check("列表有记录", len(items) >= 1, str(len(items)))
         check("列表带摘要", bool(items[0].get("excerpt")))
@@ -402,7 +445,7 @@ def main() -> int:
         check("删除成功", client.delete(f"/api/plan/{plan_id}").status_code == 200)
         check("删除后详情 404", client.get(f"/api/plan/{plan_id}").status_code == 404)
 
-        print("\n== 12. 解析与截断单测 ==")
+        print("\n== 13. 解析与截断单测 ==")
         check("解析代码块包着的动作", plan_agent.parse_action('```json\n{"action":"get_progress"}\n```')[0] == "get_progress")
         check("解析带前后解释的动作", plan_agent.parse_action('先查进度：{"action":"get_progress","args":{}} 就这样')[0] == "get_progress")
         check("散文返回 None", plan_agent.parse_action("我先看看你的进度") is None)
@@ -413,7 +456,7 @@ def main() -> int:
         check("截断后结构还在", "items" in fitted)
 
         if want_real:
-            print("\n== 13. 真实模型 ==")
+            print("\n== 14. 真实模型 ==")
             if not settings.llm_configured:
                 print("  [skip] 未配置 LLM_API_KEY")
             else:

@@ -915,6 +915,9 @@ export const testMail = (overrides: Record<string, unknown> = {}) =>
 
 export interface PlanStep {
   index: number
+  /** 这一步是哪个角色做的：observer / planner / verifier / writer */
+  role?: string
+  role_label?: string
   tool: string
   label: string
   args: Record<string, unknown>
@@ -933,6 +936,8 @@ export interface PlanResult {
   chars: number
   steps: number
   elapsed_seconds: number
+  /** 对应的多智能体运行，可用来回放全过程 */
+  run_id?: string
 }
 
 export interface PlanStats {
@@ -955,6 +960,8 @@ export interface PlanDetail extends PlanBrief {
   markdown: string
   meta: {
     steps?: Array<{
+      role?: string
+      role_label?: string
       tool: string
       label: string
       args: Record<string, unknown>
@@ -1048,6 +1055,67 @@ export async function planStream(
       else if (event === 'error') handlers.onError?.(parsed.detail ?? '生成失败')
       else if (event === 'done') handlers.onDone?.()
     }
+  }
+}
+
+/* ---------------- 知识库体检（M8） ---------------- */
+
+export type HealthSeverity = 'high' | 'medium' | 'low'
+
+export interface HealthFinding {
+  id: string
+  check: string
+  severity: HealthSeverity
+  claim: string
+  evidence: Record<string, unknown>
+  producer: string
+}
+
+export interface HealthFix {
+  id: string
+  action: string
+  label: string
+  reason: string
+  target: string[]
+  topic_id: string
+  finding_id: string
+}
+
+export interface HealthStep {
+  seq: number
+  role: string
+  action: string
+  tool: string
+  args: Record<string, unknown>
+  ok: boolean
+  brief: string
+  result: Record<string, unknown>
+  elapsed_ms: number
+}
+
+export interface HealthReport {
+  run_id: string
+  status: string
+  score: number
+  documents: number
+  counts: Record<string, number>
+  findings: HealthFinding[]
+  proposals: HealthFix[]
+  steps: HealthStep[]
+  elapsed_ms: number
+  created_at: string
+}
+
+/** 立刻跑一次体检（只读，不调模型） */
+export const runKbHealth = () => apiPost<HealthReport>('/kb-health/run')
+
+/** 上一次体检；没跑过返回 null */
+export async function getLatestKbHealth(): Promise<HealthReport | null> {
+  try {
+    return await apiGet<HealthReport>('/kb-health/latest')
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null
+    throw e
   }
 }
 
