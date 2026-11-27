@@ -854,6 +854,8 @@ export interface ReportSummary {
   wrong: number
   has_activity: boolean
   analysis_source: 'llm' | 'rule' | 'empty'
+  health_score: number | null
+  health_issues: number
 }
 
 export interface ReportBrief {
@@ -1096,6 +1098,7 @@ export interface HealthStep {
 export interface HealthReport {
   run_id: string
   status: string
+  trigger: 'manual' | 'schedule'
   score: number
   documents: number
   counts: Record<string, number>

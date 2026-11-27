@@ -52,6 +52,7 @@ def _to_report(run: AgentRun) -> HealthReportOut:
     return HealthReportOut(
         run_id=run.id,
         status=run.status,
+        trigger=run.trigger,
         score=int(summary.get("score") or 0),
         documents=int(summary.get("documents") or 0),
         counts={key: int(value) for key, value in (summary.get("counts") or {}).items()},

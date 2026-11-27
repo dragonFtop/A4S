@@ -340,6 +340,53 @@ def _section_lists(title: str, items: list[str], fallback: str) -> str:
     return "\n".join(lines)
 
 
+_SEVERITY_TAG = {"high": "待修复", "medium": "建议", "low": "提醒"}
+
+
+def _health_action(health: dict, findings: list[dict]) -> str:
+    """给出一句话就能执行的下一步，避免报告读完仍不知道做什么。"""
+    for item in health.get("proposals") or []:
+        label = str(item.get("label") or "").strip()
+        if label:
+            return f"先在知识库页{label}，处理完再体检一次。"
+    if findings:
+        return "先到知识库页处理上面列出的资料问题，处理完再体检一次。"
+    return "资料没有明显问题，按本期建议继续即可。"
+
+
+def _section_health(health: dict) -> str:
+    """定时体检的结论。手动生成的报告不带这一段，保持原有五段结构。"""
+    lines = ["## 六、资料体检", ""]
+    error = str(health.get("error") or "").strip()
+    if error:
+        lines.append(f"本次体检没有完成：{error}。不影响本期回顾，下次定时会重试。")
+        return "\n".join(lines)
+
+    score = int(health.get("score") or 0)
+    findings = [item for item in health.get("findings") or [] if isinstance(item, dict)]
+    counts = health.get("counts") or {}
+    lines.append(f"健康分 **{score}**，{len(findings)} 个问题待处理。")
+
+    parts = [
+        f"{_SEVERITY_TAG[key]} {int(counts.get(key) or 0)} 个"
+        for key in ("high", "medium", "low")
+        if int(counts.get(key) or 0)
+    ]
+    if parts:
+        lines.extend(["", "、".join(parts) + "。"])
+
+    if findings:
+        lines.append("")
+        for item in findings[:5]:
+            severity = str(item.get("severity") or "low")
+            lines.append(f"- [{_SEVERITY_TAG.get(severity, severity)}] {str(item.get('claim') or '')}")
+        if len(findings) > 5:
+            lines.append(f"- 还有 {len(findings) - 5} 条，可在知识库页查看完整报告。")
+
+    lines.extend(["", f"**下一步**：{_health_action(health, findings)}"])
+    return "\n".join(lines)
+
+
 def _compose_markdown(
     metrics: dict,
     wrong: dict,
@@ -349,6 +396,7 @@ def _compose_markdown(
     period_start: datetime,
     period_end: datetime,
     window_days: int,
+    health: dict | None = None,
 ) -> str:
     head = [
         f"# 学习回顾 · 最近 {window_days} 天",
@@ -369,6 +417,8 @@ def _compose_markdown(
             "先导入一份资料并完成一套练习，下一份报告就能给出针对性建议。",
         ),
     ]
+    if health is not None:
+        sections.append(_section_health(health))
     # 用小节内 `.strip()` + 双换行拼接：各段函数自己收尾时留或不留空行都不会粘在一起
     body = "\n\n".join(section.strip() for section in sections)
     text = "\n\n".join(head) + "\n\n" + body
@@ -386,10 +436,12 @@ async def generate_report(
     window_days: int = 7,
     *,
     trigger: str = "manual",
+    health: dict | None = None,
 ) -> ReviewReport:
     """生成并保存一份回顾报告。
 
     `trigger` 记录来源（manual / schedule），定时任务生成的报告在列表里要能区分。
+    `health` 只在定时任务里传入：体检结论会作为第六段写进报告，并给出一句可执行的下一步。
     """
     if window_days not in WINDOWS:
         raise ReviewError(f"时间窗只能是 {', '.join(str(w) for w in WINDOWS)} 天")
@@ -418,9 +470,19 @@ async def generate_report(
     metrics["trigger"] = trigger
     metrics["has_activity"] = active
     metrics["push"] = {"status": "pending" if active else "skipped", "detail": "", "at": None}
+    if health is not None:
+        metrics["health"] = health
 
     markdown = _compose_markdown(
-        metrics, wrong, top_wrong, analysis, source, period_start, period_end, window_days
+        metrics,
+        wrong,
+        top_wrong,
+        analysis,
+        source,
+        period_start,
+        period_end,
+        window_days,
+        health=health,
     )
 
     report = ReviewReport(

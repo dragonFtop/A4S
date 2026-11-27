@@ -329,9 +329,22 @@ def main() -> int:
 
         ran = client.post("/api/schedule/run").json()
         check("可手动触发一次", ran["ok"] is True, str(ran))
+        check("定时任务先跑了体检", ran.get("health_runs", 0) >= 1, str(ran))
         scheduled = [r for r in client.get("/api/reviews").json() if r["trigger"] == "schedule"]
         check("定时来源被记录", len(scheduled) >= 1, str(len(scheduled)))
         check("定时报告无 SMTP 时记录失败", scheduled[0]["push_status"] == "failed", scheduled[0]["push_status"])
+
+        latest_health = client.get("/api/kb-health/latest")
+        check("定时体检写入了运行账本", latest_health.status_code == 200, latest_health.text[:200])
+        check("体检来源标记为定时", latest_health.json().get("trigger") == "schedule", latest_health.text[:200])
+        scheduled_detail = client.get(f"/api/reviews/{scheduled[0]['id']}").json()
+        check("定时报告带资料体检段", "六、资料体检" in scheduled_detail["markdown"])
+        check("定时报告给出下一步动作", "下一步" in scheduled_detail["markdown"])
+        check(
+            "报告列表带体检分",
+            scheduled[0]["summary"].get("health_score") is not None,
+            str(scheduled[0]["summary"]),
+        )
 
         print("\n== 8. 列表与删除 ==")
         reports = client.get("/api/reviews").json()

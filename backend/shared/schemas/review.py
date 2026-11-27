@@ -27,6 +27,8 @@ class ReportMetricsOut(BaseModel):
     wrong: int = 0
     has_activity: bool = False
     analysis_source: str = "rule"
+    health_score: int | None = None
+    health_issues: int = 0
 
 
 class ReportBriefOut(BaseModel):

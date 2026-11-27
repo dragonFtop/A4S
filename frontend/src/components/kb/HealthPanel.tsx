@@ -71,6 +71,7 @@ export default function HealthPanel() {
           {report && (
             <span className="kb-health-time">
               上次 {formatDateTime(report.created_at)} · {report.elapsed_ms} ms
+              {report.trigger === 'schedule' ? ' · 周定时' : ''}
             </span>
           )}
           <Button

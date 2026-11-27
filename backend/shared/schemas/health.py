@@ -29,6 +29,7 @@ class HealthFixOut(BaseModel):
 class HealthReportOut(BaseModel):
     run_id: str
     status: str
+    trigger: str = "manual"
     score: int = 0
     documents: int = 0
     counts: dict[str, int] = Field(default_factory=dict)

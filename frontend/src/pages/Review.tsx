@@ -309,6 +309,11 @@ export default function Review() {
                   <div className="rv-item-head">
                     <span className="rv-item-title">最近 {item.window_days} 天</span>
                     {item.trigger === 'schedule' && <span className="rv-tag">定时</span>}
+                    {item.summary.health_score !== null && (
+                      <span className="rv-tag" data-kind="muted">
+                        体检 {item.summary.health_score}
+                      </span>
+                    )}
                     {item.summary.analysis_source === 'rule' && (
                       <span className="rv-tag" data-kind="muted">
                         规则
@@ -371,6 +376,10 @@ export default function Review() {
                 <span className="n">{nextRun || (schedule?.enabled ? '待计算' : '—')}</span>
               </div>
               <div className="mini-item">
+                <span className="k">任务</span>
+                <span className="n">体检 + 复盘</span>
+              </div>
+              <div className="mini-item">
                 <span className="k">邮件</span>
                 <span className="n">{PUSH_LABEL[pushState.status]}</span>
               </div>
@@ -378,7 +387,7 @@ export default function Review() {
             <div className="card-body">
               <div className="notice" style={{ marginTop: 2 }}>
                 <Mail />
-                <span>定时任务只在 A4S 运行时触发，关机期间的不会补发。</span>
+                <span>每周定时会先体检知识库，再生成回顾；只在 A4S 运行时触发，关机期间不补发。</span>
               </div>
               <div className="rv-actions-row">
                 <Button

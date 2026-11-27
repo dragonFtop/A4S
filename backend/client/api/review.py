@@ -39,6 +39,7 @@ def _summary(report: ReviewReport) -> ReportMetricsOut:
     documents = metrics.get("documents", {})
     practice = metrics.get("practice", {})
     wrong = metrics.get("wrong", {})
+    health = metrics.get("health") or {}
     return ReportMetricsOut(
         documents=documents.get("total", 0),
         chunks=documents.get("chunks", 0),
@@ -49,6 +50,8 @@ def _summary(report: ReviewReport) -> ReportMetricsOut:
         wrong=wrong.get("total", 0),
         has_activity=bool(metrics.get("has_activity")),
         analysis_source=metrics.get("analysis_source", "rule"),
+        health_score=health.get("score") if health and not health.get("error") else None,
+        health_issues=len(health.get("findings") or []) if health else 0,
     )
 
 
