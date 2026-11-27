@@ -22,6 +22,7 @@ from shared.repositories.agents import SqlAlchemyAgentRunRepository
 
 from .fixer import Fixer
 from .inspector import Inspector
+from .probe import probe_recall
 
 SEVERITY_PENALTY = {"high": 20, "medium": 10, "low": 3}
 _SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
@@ -79,7 +80,7 @@ def run_inspection(db, *, space_id: str, trigger: str = "manual") -> AgentRun:
             kind=AgentKind.KB_INSPECTION.value,
             goal="知识库体检",
             trigger=trigger,
-            budget_steps=max(8, len(docs) + 8),
+            budget_steps=max(9, len(docs) + 9),
         )
     )
 
@@ -135,6 +136,28 @@ def run_inspection(db, *, space_id: str, trigger: str = "manual") -> AgentRun:
             ok=not any(item.evidence.get("severity") == "high" for item in findings),
             brief=f"跨资料检查：{len(cross)} 条问题，合计 {len(findings)} 条待处理",
             result={"cross_findings": [item.as_dict() for item in cross][:10]},
+            elapsed_ms=int((time.monotonic() - begin) * 1000),
+        )
+
+        begin = time.monotonic()
+        probe = probe_recall(db, space_id=space_id, docs=docs)
+        findings.extend(probe.findings)
+        findings = _sorted_findings(findings)
+        _step(
+            role=AgentRole.INSPECTOR.value,
+            action="probe",
+            tool="probe_recall",
+            args={"documents": len(docs)},
+            ok=probe.missed == 0,
+            brief=probe.brief,
+            result={
+                "checked": probe.checked,
+                "hits": probe.hits,
+                "missed": probe.missed,
+                "skipped": probe.skipped,
+                "reason": probe.reason,
+                "missed_documents": probe.missed_documents[:10],
+            },
             elapsed_ms=int((time.monotonic() - begin) * 1000),
         )
 

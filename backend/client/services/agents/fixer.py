@@ -43,6 +43,10 @@ _RULES: dict[str, tuple[str, str]] = {
         "import",
         "先导入一份资料，体检才有对象",
     ),
+    "probe_missed": (
+        "reindex",
+        "重建索引后再体检一次；仍未召回就检查切分与 Embedding 模型是否一致",
+    ),
 }
 
 

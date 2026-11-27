@@ -4,11 +4,14 @@
     .venv/Scripts/python.exe scripts/smoke_m8_health.py
 
 使用独立数据库 data/test_m8.db，不污染开发库。
-体检不调模型，所以这里全部是确定性断言。
+体检不调 LLM；P2.1 的探针召回需要 Embedding，这里用确定性的二元组向量替身，
+所以全部断言仍然可复现。
 """
 
 from __future__ import annotations
 
+import hashlib
+import math
 import os
 import sys
 from pathlib import Path
@@ -25,7 +28,9 @@ if TEST_DB.exists():
 from fastapi.testclient import TestClient  # noqa: E402
 
 from shared.infrastructure.db.models import ChunkORM, DocumentORM, TopicORM  # noqa: E402
-from shared.infrastructure.db.session import SessionLocal  # noqa: E402
+from shared.infrastructure.db.session import SessionLocal, get_vector_store  # noqa: E402
+from shared.repositories.chunks import SqlAlchemyChunkRepository  # noqa: E402
+from shared.services import retrieval  # noqa: E402
 from app.main import app  # noqa: E402
 from scripts._auth import login, sign_in  # noqa: E402
 
@@ -108,6 +113,37 @@ def _document(space_id: str, doc_id: str, name: str, *, topic_id: str, text: str
         db.close()
 
 
+def _fake_vector(text: str) -> list[float]:
+    """确定性替身 Embedding：中文二元组哈希到固定维度。
+
+    真 BGE 首跑要下载模型，冒烟里用「同样文字同向、相关文字相近」的二元组
+    向量代替，只验证探针的命中 / 未命中判断，不代表真实语义能力。
+    """
+    dim = get_vector_store().dimension
+    vector = [0.0] * dim
+    grams = [text[i : i + 2] for i in range(len(text) - 1)] or [text]
+    for gram in grams:
+        digest = hashlib.md5(gram.encode("utf-8")).hexdigest()
+        vector[int(digest, 16) % dim] += 1.0
+    norm = math.sqrt(sum(value * value for value in vector)) or 1.0
+    return [value / norm for value in vector]
+
+
+def seed_vectors(space_id: str, document_ids: list[str]) -> None:
+    """只写向量、不写 FTS：探针命中必须靠向量路，才能测出索引缺没缺。"""
+    db = SessionLocal()
+    try:
+        chunk_repo = SqlAlchemyChunkRepository(db)
+        items = []
+        for document_id in document_ids:
+            for chunk in chunk_repo.list_by_document(document_id):
+                if chunk.text:
+                    items.append((chunk.id, _fake_vector(chunk.text), space_id))
+        get_vector_store().add(items)
+    finally:
+        db.close()
+
+
 def seed_healthy(space_id: str) -> None:
     """两份互相独立的资料，凑成一份没有问题的知识库。"""
     db = SessionLocal()
@@ -139,6 +175,8 @@ def seed_broken(space_id: str) -> None:
 def main() -> int:
     with TestClient(app) as client:
         login(client)
+        # 探针召回会调 Embedding：替换成确定性替身，避免下载模型拖慢冒烟
+        retrieval._embed_query = _fake_vector
 
         print("\n== 1. 还没跑过体检 ==")
         resp = client.get("/api/kb-health/latest")
@@ -161,6 +199,7 @@ def main() -> int:
         print("\n== 3. 健康的知识库 ==")
         space_id = _space_id(client)
         seed_healthy(space_id)
+        seed_vectors(space_id, ["d-good-1", "d-good-2"])
         resp = client.post("/api/kb-health/run")
         report = resp.json()
         check("健康库满分", report.get("score") == 100, str(report.get("score")))
@@ -170,9 +209,46 @@ def main() -> int:
         check("每份资料都有一步", len([s for s in report.get("steps") or [] if s.get("tool") == "inspect_document"]) == 2)
         healthy_run_id = report.get("run_id")
         check("latest 返回最近一次", client.get("/api/kb-health/latest").json().get("run_id") == healthy_run_id)
+        probe_step = next((s for s in report.get("steps") or [] if s.get("tool") == "probe_recall"), {})
+        check("体检步骤含探针抽测", bool(probe_step), str(probe_step))
+        probe_result = probe_step.get("result") or {}
+        check(
+            "健康库探针全部召回",
+            probe_result.get("checked") == 2 and probe_result.get("missed") == 0,
+            str(probe_result),
+        )
+
+        print("\n== 3b. Embedding 不可用时降级 ==")
+        original_embed = retrieval._embed_query
+
+        def _broken_embed(question: str) -> list[float]:
+            raise RuntimeError("Embedding 模型不可用")
+
+        retrieval._embed_query = _broken_embed
+        resp = client.post("/api/kb-health/run")
+        report = resp.json()
+        check(
+            "模型不可用时体检仍完成",
+            resp.status_code == 200 and report.get("status") == "completed",
+            str(report.get("status")),
+        )
+        check(
+            "探针跳过不误报",
+            report.get("score") == 100 and report.get("findings") == [],
+            str(report.get("findings")),
+        )
+        probe_step = next((s for s in report.get("steps") or [] if s.get("tool") == "probe_recall"), {})
+        check(
+            "跳过原因写进步骤",
+            bool((probe_step.get("result") or {}).get("reason")),
+            str(probe_step.get("result")),
+        )
+        retrieval._embed_query = original_embed
 
         print("\n== 4. 有问题的知识库 ==")
         seed_broken(space_id)
+        # 只给 d-dup 写向量：d-uncat 有片段却没有索引，用来验证 probe_missed
+        seed_vectors(space_id, ["d-dup"])
         before = client.get("/api/documents").json()
         before_ids = {item["id"] for item in before}
         report = client.post("/api/kb-health/run").json()
@@ -193,6 +269,14 @@ def main() -> int:
         )
         dup = next((item for item in findings if item.get("check") == "duplicate"), {})
         check("重复项带两份资料 id", len((dup.get("evidence") or {}).get("document_ids") or []) == 2, str(dup))
+        probe_finding = next((item for item in findings if item.get("check") == "probe_missed"), {})
+        check("报出未被召回的探针", bool(probe_finding), str(checks))
+        probe_evidence = probe_finding.get("evidence") or {}
+        check(
+            "探针证据带原文与资料 id",
+            bool(probe_evidence.get("probe")) and bool(probe_evidence.get("document_id")),
+            str(probe_evidence),
+        )
         roles = {step.get("role") for step in report.get("steps") or []}
         check("体检步骤仍是三角色", roles == {"inspector", "fixer", "verifier"}, str(roles))
         after_ids = {item["id"] for item in client.get("/api/documents").json()}
