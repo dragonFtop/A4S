@@ -22,8 +22,8 @@ import { useSpace } from '../context/SpaceContext'
 
 const NAV_GROUPS = [
   {
-    title: 'Agent',
-    items: [{ to: '/plan', label: '学习计划', icon: Sparkles, count: null }],
+    title: 'Plan',
+    items: [{ to: '/plan', label: '计划助理', icon: Sparkles, count: null }],
   },
   {
     title: '学习',
@@ -56,7 +56,7 @@ const TITLES: Record<string, string> = {
   '/chat': '问答',
   '/practice': '练习',
   '/wrong': '错题本',
-  '/plan': '学习 Agent',
+  '/plan': '计划助理',
   '/review': '回顾',
   '/spaces': '空间与成员',
   '/shares': '共享管理',

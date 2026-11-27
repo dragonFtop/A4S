@@ -212,19 +212,24 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
                 user_id=payload.get("user_id") or "",
             )
             if not citations:
-                # 允许"不知道"：不伪造引用，明确声明所有来源都没命中。
+                # 允许"不知道"变成"通用知识兜底"：不伪造引用，但也不拒绝回答。
                 yield _event(
                     "no_context",
                     {
                         "reason": "no_match",
-                        "fallback": False,
+                        "fallback": True,
                         "scoped": False,
-                        "detail": "本地、组内与联邦来源中都没有找到相关资料，无法回答这个问题。",
+                        "detail": (
+                            "本地、组内与联邦来源中都没有找到相关资料，"
+                            "下面改用 AI 的通用知识回答。以上内容为 AI 生成，请注意甄别。"
+                        ),
                     },
                 )
-                answer_id = uuid.uuid4().hex[:12]
-                yield _event("delta", {"text": "不知道：没有找到相关资料。", "id": answer_id})
-                yield _event("done", {"id": answer_id})
+                async for chunk in _stream_answer(
+                    chat_prompts.build_ungrounded_messages(payload["question"], history),
+                    temperature=0.4,
+                ):
+                    yield chunk
                 return
             yield _event("sources", {"items": citations, "plan": plan})
             materials = "\n\n---\n\n".join(blocks)
@@ -249,7 +254,8 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
                     "fallback": ANSWER_WITHOUT_CONTEXT,
                     "scoped": False,
                     "detail": (
-                        "当前知识库中还没有资料，下面直接用 AI 的通用知识回答，内容未经你的资料核对。"
+                        "当前知识库中还没有相关资料，下面直接用 AI 的通用知识回答。"
+                        "以上内容为 AI 生成，请注意甄别。"
                         if ANSWER_WITHOUT_CONTEXT
                         else "先在知识库导入文档或网页，等索引完成后再来提问。"
                     ),
@@ -285,7 +291,8 @@ async def sse_chat(payload: dict) -> AsyncIterator[str]:
                     "fallback": ANSWER_WITHOUT_CONTEXT,
                     "scoped": scoped,
                     "detail": (
-                        "当前范围内没有相关片段，下面改用通用知识回答。"
+                        "当前范围内没有相关资料，下面改用 AI 的通用知识回答。"
+                        "以上内容为 AI 生成，请注意甄别。"
                         if ANSWER_WITHOUT_CONTEXT
                         else "换个更具体的说法，或确认相关资料是否已经索引完成。"
                     ),

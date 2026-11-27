@@ -976,6 +976,12 @@ export interface PlanDetail extends PlanBrief {
     model?: string
     elapsed_seconds?: number
     generated_at?: string
+    agents?: {
+      roles?: string[]
+      llm_calls?: number
+      handoffs?: number
+      verdict?: { passed?: boolean; reasons?: string[]; warnings?: string[] }
+    }
   }
 }
 
@@ -998,6 +1004,7 @@ export interface PlanHandlers {
   onThinking?: (info: { step: number; steps_max: number }) => void
   onStep?: (step: PlanStep) => void
   onPlan?: (plan: PlanResult) => void
+  onNotice?: (detail: string) => void
   onNoData?: (detail: string) => void
   onNoPlan?: (info: { detail: string; elapsed_seconds: number }) => void
   onError?: (detail: string) => void
@@ -1048,6 +1055,7 @@ export async function planStream(
       else if (event === 'thinking') handlers.onThinking?.(parsed)
       else if (event === 'step') handlers.onStep?.(parsed as PlanStep)
       else if (event === 'plan') handlers.onPlan?.(parsed as PlanResult)
+      else if (event === 'notice') handlers.onNotice?.(parsed.detail ?? '')
       else if (event === 'no_data') handlers.onNoData?.(parsed.detail ?? '')
       else if (event === 'no_plan')
         handlers.onNoPlan?.({

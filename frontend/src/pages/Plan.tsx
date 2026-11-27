@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowRight,
   ArrowUpRight,
   CalendarRange,
   Check,
-  ChevronDown,
   History,
+  Info,
   Loader2,
-  ShieldCheck,
   Sparkles,
   Target,
   Trash2,
@@ -20,14 +18,17 @@ import { useToast } from '../components/ui/Toast'
 import MarkdownView from '../components/notes/MarkdownView'
 import {
   deletePlan,
+  getOverview,
   getPlan,
   listPlans,
   planStream,
+  type OverviewData,
   type PlanBrief,
   type PlanDetail,
   type PlanResult,
   type PlanStep,
 } from '../api/client'
+import { formatScore } from '../utils/format'
 
 type Notice = { kind: 'no_data' | 'no_plan' | 'error'; detail: string }
 
@@ -49,12 +50,11 @@ function when(iso: string): string {
 }
 
 /**
- * 学习计划（M7）。
+ * 计划助理（M7）。
  *
- * 与其它页面最大的不同：结果不是一次请求返回的，而是一串「动作」——
- * 查进度 → 找薄弱点 → 翻错题 → 必要时出题 → 写计划。
- * 所以这里把过程本身当成内容展示：每一步都可展开看入参与返回，
- * 这样计划里的每个数字都能对回到某次查询（验收标准见 AGENT_DECISION §3.6.4）。
+ * 页面只保留三类用户真正关心的东西：自己的学习数据、助理的执行过程、最后那份计划。
+ * 观察 / 规划 / 审核 / 写入的角色交接放在右栏，按「谁做了什么」平铺，
+ * 不再展开原始工具入参与返回值。
  */
 export default function Plan() {
   const toast = useToast()
@@ -66,7 +66,9 @@ export default function Plan() {
   const [plan, setPlan] = useState<PlanResult | null>(null)
   const [detail, setDetail] = useState<PlanDetail | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [hint, setHint] = useState('')
   const [history, setHistory] = useState<PlanBrief[]>([])
+  const [overview, setOverview] = useState<OverviewData | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const loadHistory = useCallback(() => {
@@ -75,9 +77,16 @@ export default function Plan() {
       .catch(() => undefined)
   }, [])
 
+  const loadStats = useCallback(() => {
+    getOverview()
+      .then(setOverview)
+      .catch(() => undefined)
+  }, [])
+
   useEffect(() => {
     loadHistory()
-  }, [loadHistory])
+    loadStats()
+  }, [loadHistory, loadStats])
 
   const start = async () => {
     if (running) return
@@ -87,6 +96,7 @@ export default function Plan() {
     setPlan(null)
     setDetail(null)
     setNotice(null)
+    setHint('')
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -103,7 +113,9 @@ export default function Plan() {
             setThinking(null)
             setPlan(result)
             loadHistory()
+            loadStats()
           },
+          onNotice: setHint,
           onNoData: (text) => setNotice({ kind: 'no_data', detail: text }),
           onNoPlan: (info) => setNotice({ kind: 'no_plan', detail: info.detail }),
           onError: (text) => setNotice({ kind: 'error', detail: text }),
@@ -130,6 +142,7 @@ export default function Plan() {
       setPlan(null)
       setSteps([])
       setNotice(null)
+      setHint('')
     } catch (err) {
       toast.error((err as Error).message)
     }
@@ -158,7 +171,7 @@ export default function Plan() {
         args: step.args ?? {},
         ok: step.ok,
         brief: step.brief ?? '',
-        preview: JSON.stringify(step.result ?? {}, null, 2),
+        preview: '',
         elapsed_ms: step.elapsed_ms,
       }))
     : steps
@@ -166,12 +179,61 @@ export default function Plan() {
   const shown = detail ?? plan
   const activeId = detail?.id ?? plan?.plan_id ?? null
 
+  // 审核与写入只留在运行账本里；页面上用一行摘要补齐后三位角色的交接
+  const verdict = detail?.meta.agents?.verdict
+  const passed = verdict ? verdict.passed !== false : true
+  const handoffs: PlanStep[] = shown
+    ? [
+        {
+          index: timeline.length + 1,
+          role: 'planner',
+          role_label: '规划员',
+          tool: 'propose_plan',
+          label: '撰写计划',
+          args: {},
+          ok: true,
+          brief: `起草 ${shown.markdown.length} 字，提交审核`,
+          preview: '',
+          elapsed_ms: 0,
+        },
+        {
+          index: timeline.length + 2,
+          role: 'verifier',
+          role_label: '审核员',
+          tool: 'verdict',
+          label: '审核计划',
+          args: {},
+          ok: passed,
+          brief: passed
+            ? verdict?.warnings?.length
+              ? `审核通过，${verdict.warnings.length} 条提示`
+              : '审核通过，内容与依据对得上'
+            : '审核未通过',
+          preview: '',
+          elapsed_ms: 0,
+        },
+        {
+          index: timeline.length + 3,
+          role: 'writer',
+          role_label: '记录员',
+          tool: 'save_plan',
+          label: '写入计划',
+          args: {},
+          ok: true,
+          brief: '已保存到学习计划',
+          preview: '',
+          elapsed_ms: 0,
+        },
+      ]
+    : []
+  const fullTimeline = [...timeline, ...handoffs]
+
   return (
     <section className="page">
       <header className="page-head">
         <div>
-          <h1>学习 Agent</h1>
-          <p className="page-sub">观察员查数据、规划员写计划、审核员核对数字，记录员才写入：最多 6 步，每个数字都能点回出处。</p>
+          <h1>计划助理</h1>
+          <p className="page-sub">说一句这周想学什么，助理会先看资料和错题，再给出一份 7 天计划。</p>
         </div>
         <div className="page-actions">
           {running ? (
@@ -180,11 +242,41 @@ export default function Plan() {
             </Button>
           ) : (
             <Button variant="primary" icon={<Sparkles size={15} />} onClick={start}>
-              让 Agent 开始
+              开始制定计划
             </Button>
           )}
         </div>
       </header>
+
+      <div className="plan-stats" aria-label="学习数据">
+        <div className="plan-stat">
+          <span className="plan-stat-value">
+            {overview ? overview.documents.total : '—'}
+            <i>份</i>
+          </span>
+          <span className="plan-stat-label">资料</span>
+        </div>
+        <div className="plan-stat">
+          <span className="plan-stat-value">
+            {overview ? overview.documents.chunks : '—'}
+            <i>个</i>
+          </span>
+          <span className="plan-stat-label">知识片段</span>
+        </div>
+        <div className="plan-stat">
+          <span className="plan-stat-value">
+            {overview && overview.practice.finished > 0 ? formatScore(overview.practice.avg_score) : '—'}
+          </span>
+          <span className="plan-stat-label">练习正确率</span>
+        </div>
+        <div className={`plan-stat${overview && overview.wrong.total > 0 ? ' is-danger' : ''}`}>
+          <span className="plan-stat-value">
+            {overview ? overview.wrong.total : '—'}
+            <i>道</i>
+          </span>
+          <span className="plan-stat-label">待复习错题</span>
+        </div>
+      </div>
 
       <div className="workbench">
         <div className="card plan-panel">
@@ -203,62 +295,17 @@ export default function Plan() {
             />
           </div>
 
-          <div className="agent-loop" aria-label="Agent 的工作方式">
-            <span className="agent-loop-step">
-              <b>1</b> 看进度与薄弱点
-            </span>
-            <ArrowRight size={12} className="agent-loop-arrow" />
-            <span className="agent-loop-step">
-              <b>2</b> 按需出一套题
-            </span>
-            <ArrowRight size={12} className="agent-loop-arrow" />
-            <span className="agent-loop-step">
-              <b>3</b> 写出 7 天计划
-            </span>
-            <span className="agent-loop-note">只读数据 · 唯一写操作是保存这份计划</span>
-          </div>
-
-          {timeline.length > 0 && (
-            <ol className="plan-steps" aria-label="生成过程">
-              {timeline.map((step) => (
-                <li key={`${step.index}-${step.tool}`} className={`plan-step${step.ok ? '' : ' is-fail'}`}>
-                  <span className="plan-step-dot">
-                    {step.ok ? <Check size={11} /> : <X size={11} />}
-                  </span>
-                  <div className="plan-step-main">
-                    <div className="plan-step-head">
-                      {step.role_label && <span className="plan-step-role">{step.role_label}</span>}
-                      <span className="plan-step-label">{step.label}</span>
-                      <span className="plan-step-time">{step.elapsed_ms} ms</span>
-                    </div>
-                    {step.brief && <p className="plan-step-brief">{step.brief}</p>}
-                    {step.session_id && (
-                      <button
-                        className="plan-step-go"
-                        onClick={() => navigate(`/practice?session=${step.session_id}`)}
-                      >
-                        去作答这套题 <ArrowUpRight size={11} />
-                      </button>
-                    )}
-                    <details className="plan-step-more" key={`detail-${step.index}-${activeId ?? 'live'}`}>
-                      <summary>这一步的数据</summary>
-                      <pre>
-                        入参 {JSON.stringify(step.args, null, 2)}
-                        {'\n'}
-                        {step.preview}
-                      </pre>
-                    </details>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-
-          {running && (
-            <p className="plan-thinking">
-              <Loader2 size={13} className="spin" />
-              {thinking ? `正在思考第 ${thinking.step} 步（最多 ${thinking.steps_max} 步）…` : '正在收尾…'}
-            </p>
+          {hint && (
+            <div className="chat-kb plan-hint">
+              <Info size={15} />
+              <div className="chat-kb-body">
+                <p className="chat-kb-title">当前知识库中还没有相关资料</p>
+                <p className="chat-kb-detail">{hint}</p>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => navigate('/library')}>
+                去导入资料
+              </Button>
+            </div>
           )}
 
           {notice && (
@@ -286,10 +333,6 @@ export default function Plan() {
               <div className="plan-body-head">
                 <span className="plan-body-meta">
                   {detail ? when(detail.created_at) : '刚刚生成'}
-                  {shown.steps ? ` · ${shown.steps} 步` : ''}
-                  {'elapsed_seconds' in shown && shown.elapsed_seconds
-                    ? ` · ${Math.round(shown.elapsed_seconds)} 秒`
-                    : ''}
                 </span>
                 {detail && (
                   <Button size="sm" variant="ghost" icon={<Trash2 size={13} />} onClick={(e) => removePlan(detail.id, e)}>
@@ -306,14 +349,58 @@ export default function Plan() {
                 <span className="orb">
                   <Sparkles size={19} />
                 </span>
-                <h3>Agent 还没开始</h3>
-                <p>说一句目标，它会先看资料与错题；走到哪一步都会在上面亮出来，大约 30～90 秒。</p>
+                <h3>助理还没开始</h3>
+                <p>写一句这周想学什么（也可以不写），助理会先看资料和错题，再给你一份 7 天计划。</p>
               </div>
             )
           )}
         </div>
 
         <div className="stack">
+          <div className="card">
+            <div className="card-head">
+              <h2>
+                <Sparkles size={15} /> 执行过程
+              </h2>
+            </div>
+            {fullTimeline.length > 0 ? (
+              <ol className="plan-steps" aria-label="助理的执行过程">
+                {fullTimeline.map((step) => (
+                  <li key={`${step.index}-${step.tool}`} className={`plan-step${step.ok ? '' : ' is-fail'}`}>
+                    <span className="plan-step-dot">
+                      {step.ok ? <Check size={11} /> : <X size={11} />}
+                    </span>
+                    <div className="plan-step-main">
+                      <div className="plan-step-head">
+                        {step.role_label && <span className="plan-step-role">{step.role_label}</span>}
+                        <span className="plan-step-label">{step.label}</span>
+                      </div>
+                      {step.brief && <p className="plan-step-brief">{step.brief}</p>}
+                      {step.session_id && (
+                        <button
+                          className="plan-step-go"
+                          onClick={() => navigate(`/practice?session=${step.session_id}`)}
+                        >
+                          去作答这套题 <ArrowUpRight size={11} />
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="plan-side-empty">
+                {running ? '助理正在准备第一步…' : '开始后，助理的每一步都会显示在这里。'}
+              </p>
+            )}
+            {running && (
+              <p className="plan-thinking">
+                <Loader2 size={13} className="spin" />
+                {thinking ? '助理正在整理资料与错题…' : '正在收尾…'}
+              </p>
+            )}
+          </div>
+
           <div className="card">
             <div className="card-head">
               <h2>
@@ -338,7 +425,7 @@ export default function Plan() {
                     <div className="plan-history-main">
                       <span className="plan-history-title">{item.goal || item.excerpt}</span>
                       <span className="plan-history-meta">
-                        {when(item.created_at)} · {item.steps} 步 · {item.stats.documents} 份资料
+                        {when(item.created_at)} · {item.stats.documents} 份资料
                       </span>
                     </div>
                     <button
@@ -352,42 +439,6 @@ export default function Plan() {
                 ))}
               </div>
             )}
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h2>
-                <ShieldCheck size={15} /> Agent 边界
-              </h2>
-            </div>
-            <ul className="plan-scope">
-              <li>只读数据、只写这份计划</li>
-              <li>每个数字都来自上面某一步，不自己算</li>
-              <li>不判分、不排复习日期</li>
-              <li>一次一份 7 天计划，数据为空不出</li>
-            </ul>
-            <details className="plan-scope-more">
-              <summary>
-                它调用的工具 <ChevronDown size={12} />
-              </summary>
-              <ul>
-                <li>
-                  <code>get_progress</code> 进度统计
-                </li>
-                <li>
-                  <code>list_weak_points</code> 薄弱知识点
-                </li>
-                <li>
-                  <code>list_wrong_answers</code> 错题明细
-                </li>
-                <li>
-                  <code>generate_practice</code> 出一套题
-                </li>
-                <li>
-                  <code>save_plan</code> 落库（唯一写操作）
-                </li>
-              </ul>
-            </details>
           </div>
         </div>
       </div>

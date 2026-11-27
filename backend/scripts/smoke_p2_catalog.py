@@ -241,10 +241,11 @@ def main() -> int:
             names = [n for n, _ in events]
             check("无命中时不返回 sources", "sources" not in names, str(names))
             check("无命中时下发 no_context", "no_context" in names, str(names))
-            detail = next((d.get("detail", "") for n, d in events if n == "no_context"), "")
-            check("声明未找到", "没有找到" in detail, detail)
+            ctx = next((d for n, d in events if n == "no_context"), {})
+            check("声明未找到并标注甄别", "没有找到" in ctx.get("detail", "") and "请注意甄别" in ctx.get("detail", ""), ctx.get("detail", ""))
+            check("降级为通用知识而非拒答", ctx.get("fallback") is True, str(ctx))
             answer = "".join(d.get("text", "") for n, d in events if n == "delta")
-            check("回答为『不知道』且不含伪造引用编号", "不知道" in answer and "[1]" not in answer, answer)
+            check("兜底回答仍有正文", bool(answer.strip()), answer[:60])
         finally:
             chat_service.build_llm = original_build
             settings.llm_api_key = ""

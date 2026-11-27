@@ -7,7 +7,7 @@
 出口只有四个：
 - `plan` + `done`：审核通过并已写入；
 - `no_plan`：规划员没写出来，或审核两次都没过；
-- `no_data`：资料与练习都是 0，没有排计划的依据；
+- `notice`：空库不再拦截，先提示「还没有相关资料」，再给一份起步计划；
 - `error`：模型/写库故障。
 """
 
@@ -24,6 +24,8 @@ from shared.domain.models.agents import (
     AgentKind,
     AgentRole,
     AgentRun,
+    Finding,
+    FindingKind,
     Proposal,
     RunStatus,
     Verdict,
@@ -50,6 +52,9 @@ COACH_ROLES = (
     AgentRole.VERIFIER,
     AgentRole.WRITER,
 )
+
+# 空库不再拒绝生成：先声明事实，再给一份「从零起步」的通用计划。
+EMPTY_KB_NOTICE = "当前知识库中还没有相关资料。以上内容为 AI 生成，请注意甄别。"
 
 
 class _Recorder:
@@ -138,12 +143,10 @@ async def run_coach(
 
         space_id = payload["space_id"]
         stats = StatsRepository(db, space_id).summary()
-        if stats["documents"]["total"] == 0 and stats["practice"]["sessions"] == 0:
-            yield protocol.event(
-                "no_data",
-                {"detail": "还没有资料和练习记录，先导入一份资料或做一套题，计划才有依据。"},
-            )
-            return
+        # 空库不再拦下来：仍然生成一份「从零起步」的计划，只是先声明并标注 AI 生成。
+        empty_library = (
+            stats["documents"]["total"] == 0 and stats["practice"]["sessions"] == 0
+        )
 
         llm = (llm_factory or build_llm)()
         today = datetime.now().astimezone().strftime("%Y-%m-%d")
@@ -173,11 +176,32 @@ async def run_coach(
             },
         )
 
+        if empty_library:
+            yield protocol.event(
+                "notice", {"detail": "以上内容为 AI 生成的起步计划，请注意甄别。"}
+            )
+
         observer = Observer(
             db=db, space_id=space_id, llm=llm, goal=goal, today=today
         )
         async for chunk in rec.pipe(observer.run()):
             yield chunk
+
+        if empty_library:
+            # 让规划员看到「没有资料」这条事实，而不是靠提示词凭空知道。
+            observer.findings.append(
+                Finding(
+                    kind=FindingKind.DOCUMENT,
+                    claim="当前知识库中还没有相关资料，也还没有练习记录",
+                    evidence={
+                        "check": "empty_library",
+                        "severity": "low",
+                        "documents": 0,
+                        "sessions": 0,
+                    },
+                    producer=AgentRole.OBSERVER.value,
+                )
+            )
 
         # P3 跨道协作：规划员动笔前，把最近一次体检的资料问题并进黑板。
         # 读不到就当作没有——体检道失败不能拖垮教练道。
@@ -231,6 +255,11 @@ async def run_coach(
         attempt = 0
 
         while proposal is not None:
+            # 模型偶尔忘写提示语：这里兜底补上，保证用户一定看到「AI 生成」。
+            if empty_library and EMPTY_KB_NOTICE not in proposal.markdown:
+                proposal.payload["markdown"] = (
+                    proposal.markdown.rstrip() + "\n\n> " + EMPTY_KB_NOTICE
+                )
             verdict = verify(proposal, observer.findings)
             rec.persist(
                 {

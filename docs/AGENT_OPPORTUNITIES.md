@@ -38,13 +38,13 @@
 | 链路 | 用户入口 | 关键接口 | LLM 在哪 | 写死的步骤 | 失败/空数据 | 写入 |
 |---|---|---|---|---|---|---|
 | 资料入库/索引 | 知识库 → 上传/粘贴/网页 | `POST /api/documents/*` | 无（Embedding 除外） | 解析 → 切分 → 向量化 → FTS | 解析失败给原因；扫描 PDF 无 OCR → 0 片段 | `documents` `chunks` 向量/FTS |
-| 问答 | 问答页 / 概览提问框 | `POST /api/chat`（SSE） | 命中/未命中各一次生成 | 检索 Top-K(5) → 阈值 0.42 → 拼上下文 → 生成 | 空库状态条；未命中先声明再通用知识补答 | 不落库（会话在前端） |
+| 问答 | 问答页 / 概览提问框 | `POST /api/chat`（SSE） | 命中/未命中各一次生成 | 检索 Top-K(5) → 阈值 0.42 → 拼上下文 → 生成 | 空库/未命中都先声明再通用知识补答 | 不落库（会话在前端） |
 | 笔记 | 笔记 → 新建/从资料起草 | `/api/notes/*` | 起草一次 | 模板 → 生成 → 草稿 → 人工定稿 | AI 补写有标记；失败可重试 | `notes` |
 | 出题 | 练习 → 选范围/题型/数量 | `POST /api/practice/generate` + 轮询 | 每种题型一次生成 | 取片段 → 按题型提示词 → 校验 → 组卷 | 材料不足直接拒绝；单次 ≤30 题 | `practice_sessions` `questions` |
 | 作答判分 | 练习 → 作答 → 交卷 | `/sessions/{id}/start|submit` | 无（简答自评） | 客观题规则判分、多选全对才得分 | 断点续答；未答提醒 | `practice_sessions` `wrong_answers` |
 | 错题本 | 错题本 | `/wrong-answers*` | 无 | 答错/自评未掌握自动收录，按题去重累加 | 按主题/资料/题型/时间筛选 | `wrong_answers` |
 | 回顾报告 | 回顾 → 选 7/14/30 天 | `POST /api/reviews` | 一次生成三段分析 | 聚合数据 → 拼提示词 → Markdown | 空窗口出提示性报告 | `review_reports` |
-| 学习计划 | 侧栏 Agent → 学习计划 | `POST /api/plan`（SSE） | 6 步循环内多次 | 模型选工具 → 执行 → 观察 → 再选 | 空库不出计划；工具失败换路 | `study_plans` |
+| 计划助理 | 侧栏 Plan → 计划助理 | `POST /api/plan`（SSE） | 6 步循环内多次 | 模型选工具 → 执行 → 观察 → 再选 | 空库先提示再给起步计划；工具失败换路 | `study_plans` |
 | 定时邮件 | 设置/回顾 | APScheduler + SMTP | 无 | 每周固定 cron → 生成 → 发送 | 关机不补发；失败写原因 | `review_reports` + 推送状态 |
 | 小组投稿 | 空间 → 上传/笔记 | `/api/spaces/*` | 无 | 待审 → owner 预览 → 批准/驳回 | 驳回带理由；审核前不索引 | 服务端 `documents`/`notes` |
 | 共享/联邦选源 | 问答（有共享/组内库时） | `chat_service` 内 | 生成一次 | 本地 → 组内 → 联邦，来源上限 3 | 服务端离线显示离线；超时即过期 | 不落库 |
@@ -53,7 +53,7 @@
 
 - 文件：`backend/client/services/plan_agent.py`、`plan_tools.py`、`plan_prompts.py`、`backend/client/api/plan.py`。
 - 工具：`get_progress`、`list_weak_points`、`list_wrong_answers`、`generate_practice`、`save_plan`。
-- 约束：最多 6 步；只有 `save_plan` 写入；数字必须来自工具返回；`meta.steps` 保存每步入参与结果摘要；SSE 推 `step / thinking / plan / no_data / no_plan / error`。
+- 约束：最多 6 步；只有 `save_plan` 写入；数字必须来自工具返回；`meta.steps` 保存每步入参与结果摘要；SSE 推 `step / thinking / notice / plan / no_plan / error`。空库不拦截：先推 `notice`，再产出带甄别提示的起步计划。
 - 现状：**一次会话出一份 7 天计划就结束**，没有执行跟踪、没有下一次重排、没有主动触发。
 
 体检道（P2 已落地）是第二个：`client/services/agents/{inspector,fixer,health}.py` 只读巡检资料，Fixer 只出建议，Verifier 丢掉无依据提案；不调模型、不写业务表，运行账本与教练道共用。
@@ -62,7 +62,7 @@
 
 - 引用编号白名单、答案归一化、JSON 容错重试（`llm_generator`）。
 - 检索阈值 0.42 + 擦边命中追加判断提示（`retrieval` / `chat_service`）。
-- 未命中两种分支：空库走页面状态条，有库未召回走回答上方声明。
+- 未命中三种分支：空库 / 有库未召回 / 多源都没命中，都先声明再用通用知识作答，并附「AI 生成，请注意甄别」。
 - 多源选源：本地 → 组内 → 联邦，来源上限 3，文本层重排（`chat_service.py`）。
 - 只读共享保护：`viewer` 除问答外写接口全部 403（`shared/api/deps.py`）。
 
@@ -443,7 +443,7 @@
 - P4（已完成，2026-11-27）：做周定时——每周自动为每个空间跑一次体检，把结论作为回顾报告第六段并给一句可执行动作，体检失败降级为文字说明。
 - P5：把错题诊断作为第三个 specialist 插入，不改变主结构。
 
-> **落地进度（2026-11-27）**：P1 已落地。角色代码在 `backend/client/services/agents/`，运行与步骤写入 `agent_runs` / `agent_steps`，`GET /api/plan/runs/{run_id}` 可回放；审核为确定性规则（长度 + 三段结构 + 依据数字核对），打回最多重试 1 次，只有 Writer 能调 `save_plan`。对外仍是 6 步，前端时间线新增角色徽标。冒烟脚本（现 69 项）全部通过。P2 体检道同日落地：`Inspector` 逐份巡检、`Fixer` 只出建议、`Verifier` 丢弃无依据提案，`POST /api/kb-health/run` 手动触发，不调模型也不写业务表；P2.1 探针召回同日落地：用资料自身片段当问题跑真实检索，未召回报 `probe_missed` 并附重建索引建议，Embedding / 索引不可用时整体跳过，冒烟 38 项断言通过。P3 跨道协作同日落地：规划前由协调员读最近一次体检（`read_kb_health` 一步），高危 / 中危资料问题并入黑板，读取失败降级为空；教练道冒烟增至 69 项。P4 周定时同日落地：定时任务改为「先体检、再复盘」，每个空间各跑一次 `trigger=schedule` 的体检，结论写进回顾第六段并带一句「下一步」，体检失败降级为文字说明；回顾冒烟增至 56 项，回归合计 513 项。
+> **落地进度（2026-11-27）**：P1 已落地。角色代码在 `backend/client/services/agents/`，运行与步骤写入 `agent_runs` / `agent_steps`，`GET /api/plan/runs/{run_id}` 可回放；审核为确定性规则（长度 + 三段结构 + 依据数字核对），打回最多重试 1 次，只有 Writer 能调 `save_plan`。对外仍是 6 步，前端时间线新增角色徽标。冒烟脚本（现 73 项）全部通过。P2 体检道同日落地：`Inspector` 逐份巡检、`Fixer` 只出建议、`Verifier` 丢弃无依据提案，`POST /api/kb-health/run` 手动触发，不调模型也不写业务表；P2.1 探针召回同日落地：用资料自身片段当问题跑真实检索，未召回报 `probe_missed` 并附重建索引建议，Embedding / 索引不可用时整体跳过，冒烟 38 项断言通过。P3 跨道协作同日落地：规划前由协调员读最近一次体检（`read_kb_health` 一步），高危 / 中危资料问题并入黑板，读取失败降级为空；教练道冒烟增至 73 项。P4 周定时同日落地：定时任务改为「先体检、再复盘」，每个空间各跑一次 `trigger=schedule` 的体检，结论写进回顾第六段并带一句「下一步」，体检失败降级为文字说明；回顾冒烟增至 56 项，回归合计 518 项。
 
 > 判断多智能体是否成功的标准不是「角色多」，而是：**Verifier 拦截了多少错误、跨道协作减少了多少重复劳动、用户是否更容易理解为什么改。**
 

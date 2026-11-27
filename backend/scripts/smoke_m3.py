@@ -106,6 +106,7 @@ def main() -> int:
             names = [name for name, _ in events]
             check("空库返回 no_context", events and names[0] == "no_context", str(events[:1]))
             check("提示文案可读", "知识库" in events[0][1].get("detail", ""))
+            check("空库提示带甄别", "请注意甄别" in events[0][1].get("detail", ""))
             check("空库声明 reason=empty", events[0][1].get("reason") == "empty", str(events[:1]))
             check("空库声明 fallback=True", events[0][1].get("fallback") is True)
             # 本轮改动：空库不再只声明，声明之后要继续用通用知识作答

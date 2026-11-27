@@ -87,6 +87,32 @@ PLAN_MD = """# 7 天学习计划（11 月 26 日 — 12 月 2 日）
 
 SHORT_PLAN = "# 计划\n\n先复习错题，再做两套题，最后总结。就这样，坚持一周。"
 
+# 空库也要给计划：只允许出现 0，不能编造资料名或数字。
+EMPTY_PLAN_MD = """# 从零起步的 7 天计划
+
+## 依据
+- 当前知识库中还没有相关资料：就绪资料 0 份、练习 0 套、错题 0 道。
+- 还没有可分析的薄弱主题，这一周先把「资料进来 → 练习跑通」的流程走完。
+- 下面是按通用学习方法给出的起步安排，不含对具体资料的判断。
+
+## 安排
+- 第 1 天：选定一门正在学的课，导入讲义或教材前两章的电子版，等索引完成。
+- 第 2 天：给导入的资料建立两到三个主题，确认每份资料都归到合适的位置。
+- 第 3 天：围绕其中一个主题做第一套练习，先熟悉题型与作答方式。
+- 第 4 天：把练习里的错题看一遍，用自己的话写下每道题错在哪里。
+- 第 5 天：换一个主题再做一套练习，比较两次作答的差别。
+- 第 6 天：回到错题本，把同一知识点的题重做一次。
+- 第 7 天：回顾这一周的记录，列下一个想补的知识点，作为下周计划的输入。
+
+## 完成标准
+- 知识库里至少有一份索引完成、能参与检索的资料。
+- 至少完成两套练习，错题都进了错题本。
+- 能说清一个知识点，并指出自己在哪一步容易出错。
+
+## 一句提醒
+资料越早进来，后面的问答和练习才越贴近你的课程；这份计划只是起步，不是结论。
+"""
+
 
 def check(name: str, condition: bool, detail: str = "") -> None:
     if condition:
@@ -274,11 +300,27 @@ def main() -> int:
     with TestClient(app) as client:
 
         login(client)
-        print("\n== 1. 空数据不出计划 ==")
-        events, fake = run_plan(client, [])
+        print("\n== 1. 空库不拦截：先提示，再给起步计划 ==")
+        events, fake = run_plan(
+            client,
+            [
+                json.dumps({"action": "get_progress", "args": {}}),
+                json.dumps({"action": "list_weak_points", "args": {"limit": 5}}),
+                json.dumps(
+                    {"action": "save_plan", "args": {"markdown": EMPTY_PLAN_MD}},
+                    ensure_ascii=False,
+                ),
+            ],
+        )
         names = [name for name, _ in events]
-        check("空库返回 no_data", names == ["no_data"], str(names))
-        check("空库不调用模型", not fake.calls)
+        check("空库先推 notice", "notice" in names and names.index("notice") < names.index("step"), str(names))
+        check("空库不再返回 no_data", "no_data" not in names, str(names))
+        notice_event = next((data for name, data in events if name == "notice"), {})
+        check("notice 声明 AI 生成", "AI 生成" in notice_event.get("detail", ""), str(notice_event))
+        check("空库仍产出计划", names[-1] == "done", str(names))
+        empty_plan = next((data for name, data in events if name == "plan"), {})
+        check("空库计划带甄别提示", "请注意甄别" in empty_plan.get("markdown", ""))
+        check("空库也确实调用了模型", bool(fake.calls))
 
         space_id = client.get("/api/auth/me").json()["current_space"]["id"]
         seed(space_id)

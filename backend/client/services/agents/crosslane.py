@@ -18,7 +18,7 @@ from shared.domain.models.agents import AgentRole, Finding, FindingKind
 
 # 一次计划最多引用几条资料问题。再多会把计划正文挤成待办清单。
 MAX_CROSS_FINDINGS = 5
-# 空库由教练道的 no_data 兜住，不必再进计划里说一遍
+# 空库没有可注入的体检结论：教练道自己会用 notice 声明，不必在这里重复一遍
 SKIP_CHECKS = frozenset({"empty_library"})
 _SEVERITY_ORDER = {"high": 0, "medium": 1}
 

@@ -1,7 +1,7 @@
 """学习计划接口（M7 规划 Agent）。
 
-- `POST /api/plan`：SSE。事件序 start → thinking/step… → plan → done，
-  异常出口是 no_data / no_plan / error。和问答一样用 POST + 流式，
+- `POST /api/plan`：SSE。事件序 notice? → start → thinking/step… → plan → done，
+  异常出口是 no_plan / error；空库不再拦截，只先推一条 notice 再给起步计划。
   因为一次规划要调 3~5 次模型，够等 1~2 分钟，不适合普通请求。
 - `GET /api/plan`：历史计划（不含正文，带摘要）。
 - `GET /api/plan/{id}`：详情（正文 + 每步过程）。

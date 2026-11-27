@@ -285,8 +285,8 @@ export default function Chat() {
             <div className="chat-kb">
               <FileText size={14} />
               <div className="chat-kb-body">
-                <p className="chat-kb-title">知识库中还没有资料</p>
-                <p className="chat-kb-detail">回答将由 AI 通用知识生成，不引用任何原文。</p>
+                <p className="chat-kb-title">当前知识库中还没有相关资料</p>
+                <p className="chat-kb-detail">回答将由 AI 通用知识生成，请注意甄别。</p>
               </div>
               <Button
                 size="sm"
